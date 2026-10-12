@@ -53,7 +53,7 @@ final class LayoutStore {
         do {
             layouts = try decoder.decode(FileFormat.self, from: data).layouts
         } catch {
-            Log.info("No se pudo leer layouts.json (\(error)); se guarda una copia y se empieza de cero")
+            Log.info("Could not read layouts.json (\(error)); kept a copy and starting fresh")
             try? FileManager.default.copyItem(at: url, to: url.appendingPathExtension("corrupt-\(Int(Date().timeIntervalSince1970))"))
         }
     }
@@ -86,7 +86,7 @@ final class LayoutStore {
             try data.write(to: url, options: .atomic)
             isDirty = false
         } catch {
-            Log.info("Error guardando layouts: \(error)")
+            Log.info("Error saving layouts: \(error)")
         }
     }
 

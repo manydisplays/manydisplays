@@ -82,21 +82,21 @@ final class Engine {
 
     func start() {
         queue.async {
-            Log.info("ManyDisplays iniciado (boot \(Boot.session), AX=\(AX.isTrusted))")
+            Log.info("ManyDisplays started (boot \(Boot.session), AX=\(AX.isTrusted))")
             self.publish()
-            self.scheduleSettle(after: 1.0, reason: "inicio")
+            self.scheduleSettle(after: 1.0, reason: "launch")
         }
     }
 
     func displayReconfigBegan() {
-        queue.async { self.freeze("monitores reconfigurándose") }
+        queue.async { self.freeze("displays reconfiguring") }
     }
 
     func displayReconfigEnded(hotplug: Bool) {
         queue.async {
             if hotplug { self.sawHotplug = true }
-            if self.mode != .frozen { self.freeze("monitores reconfigurados") }
-            self.scheduleSettle(after: 2.5, reason: "monitores estables")
+            if self.mode != .frozen { self.freeze("displays reconfigured") }
+            self.scheduleSettle(after: 2.5, reason: "displays stable")
         }
     }
 
@@ -105,14 +105,14 @@ final class Engine {
             self.checkpoint()
             self.asleep = true
             self.sawSleepOrLock = true
-            self.freeze("Mac en reposo")
+            self.freeze("Mac going to sleep")
         }
     }
 
     func didWake() {
         queue.async {
             self.asleep = false
-            self.scheduleSettle(after: 3.0, reason: "Mac despertó")
+            self.scheduleSettle(after: 3.0, reason: "Mac woke up")
         }
     }
 
@@ -120,12 +120,12 @@ final class Engine {
         queue.async {
             self.checkpoint()
             self.sawSleepOrLock = true
-            self.freeze("pantallas en reposo")
+            self.freeze("displays asleep")
         }
     }
 
     func screensDidWake() {
-        queue.async { self.scheduleSettle(after: 3.0, reason: "pantallas despiertas") }
+        queue.async { self.scheduleSettle(after: 3.0, reason: "displays awake") }
     }
 
     func screenLockChanged(locked: Bool) {
@@ -135,11 +135,11 @@ final class Engine {
                 self.checkpoint()
                 self.screenLocked = true
                 self.sawSleepOrLock = true
-                self.freeze("pantalla bloqueada")
+                self.freeze("screen locked")
             } else {
                 guard self.screenLocked else { return }
                 self.screenLocked = false
-                self.scheduleSettle(after: 1.5, reason: "desbloqueo")
+                self.scheduleSettle(after: 1.5, reason: "unlocked")
             }
         }
     }
@@ -169,7 +169,7 @@ final class Engine {
 
     func accessibilityGranted() {
         queue.async {
-            Log.info("Permiso de Accesibilidad concedido")
+            Log.info("Accessibility permission granted")
             if self.mode == .tracking { DispatchQueue.main.async { AXHub.shared.start() } }
             self.publish()
         }
@@ -181,7 +181,7 @@ final class Engine {
             guard !Settings.paused else { return }
             let displays = Displays.current()
             guard Displays.hasExternal(displays) else {
-                Log.info("Guardar manual ignorado: no hay monitores externos")
+                Log.info("Manual save ignored: no external displays")
                 return
             }
             self.pending.removeAll()
@@ -189,7 +189,7 @@ final class Engine {
             if self.mode != .tracking { self.beginTracking() }
             self.snapshot()
             self.store.flush()
-            Log.info("Guardado manual")
+            Log.info("Manual save")
         }
     }
 
@@ -200,7 +200,7 @@ final class Engine {
             guard Displays.hasExternal(displays) else { return }
             let profile = Displays.profileID(displays)
             guard let layout = self.store.layout(profile) else {
-                Log.info("Restaurar manual: no hay nada guardado para esta combinación de monitores")
+                Log.info("Manual restore: nothing saved for this display setup")
                 return
             }
             self.activeProfileID = profile
@@ -211,14 +211,14 @@ final class Engine {
     func setPaused(_ paused: Bool) {
         queue.async {
             Settings.paused = paused
-            Log.info(paused ? "Seguimiento pausado" : "Seguimiento reanudado")
+            Log.info(paused ? "Tracking paused" : "Tracking resumed")
             if paused {
                 self.cycle += 1
                 self.stopTracking()
-                self.setMode(.paused, "pausado por el usuario")
+                self.setMode(.paused, "paused by user")
             } else {
-                self.setMode(.frozen, "reanudando")
-                self.scheduleSettle(after: 0.2, reason: "reanudar")
+                self.setMode(.frozen, "resuming")
+                self.scheduleSettle(after: 0.2, reason: "resume")
             }
         }
     }
@@ -227,7 +227,7 @@ final class Engine {
         queue.async {
             self.store.remove(id)
             self.store.flush()
-            Log.info("Perfil olvidado: \(id)")
+            Log.info("Forgot setup: \(id)")
             self.publish()
         }
     }
@@ -254,7 +254,7 @@ final class Engine {
         snapshotWork = nil
         pendingRestoreWork?.cancel()
         settleWork?.cancel()
-        if mode != .frozen { Log.info("Pausa: \(reason)") }
+        if mode != .frozen { Log.info("On hold: \(reason)") }
         setMode(.frozen, reason)
         DispatchQueue.main.async { RestoreOverlay.shared.hide() }
 
@@ -276,7 +276,7 @@ final class Engine {
     }
 
     private func scheduleSettle(after delay: TimeInterval, reason: String) {
-        guard mode != .paused || reason == "reanudar" else { return }
+        guard mode != .paused || reason == "resume" else { return }
         settleWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.settled(reason: reason) }
         settleWork = work
@@ -285,7 +285,7 @@ final class Engine {
 
     private func settled(reason: String) {
         if screenLocked || asleep {
-            setMode(.frozen, screenLocked ? "esperando desbloqueo" : "esperando que despierte")
+            setMode(.frozen, screenLocked ? "waiting for unlock" : "waiting for wake")
             return
         }
         evaluate(reason: reason)
@@ -294,17 +294,17 @@ final class Engine {
     private func evaluate(reason: String) {
         if Settings.paused {
             stopTracking()
-            setMode(.paused, "pausado por el usuario")
+            setMode(.paused, "paused by user")
             return
         }
         let displays = Displays.current()
         guard Displays.hasExternal(displays) else {
-            if mode != .inactive { Log.info("Sin monitores externos: inactivo") }
+            if mode != .inactive { Log.info("No external displays: idle") }
             activeProfileID = nil
             pending.removeAll()
             resetCycleFlags()
             stopTracking()
-            setMode(.inactive, "sin monitores externos")
+            setMode(.inactive, "no external displays")
             return
         }
 
@@ -312,18 +312,18 @@ final class Engine {
         let isFirst = firstEvaluation
         firstEvaluation = false
         if profile != activeProfileID {
-            Log.info("Combinación de monitores: \(Displays.profileName(displays.map(DisplayInfo.init)))")
+            Log.info("Display setup: \(Displays.profileName(displays.map(DisplayInfo.init)))")
             pending.removeAll()
         }
         activeProfileID = profile
 
         guard let layout = store.layout(profile) ?? (isFirst ? nil : closestLayout(to: displays)) else {
-            Log.info("Combinación nueva, empiezo a guardar")
+            Log.info("New display setup, tracking started")
             beginTracking()
             return
         }
         if layout.profileID != profile {
-            Log.info("Combinación nueva; restauro desde la más parecida: \(Displays.profileName(layout.displays))")
+            Log.info("New display setup; restoring from the closest one: \(Displays.profileName(layout.displays))")
         }
 
         if isFirst {
@@ -333,8 +333,8 @@ final class Engine {
             if rebound.isEmpty {
                 beginTracking()
             } else {
-                Log.info("Reasociadas \(rebound.count) ventanas tras reinicio")
-                startRestore(layout: store.layout(profile) ?? layout, displays: displays, reason: "inicio",
+                Log.info("Re-linked \(rebound.count) windows after restart")
+                startRestore(layout: store.layout(profile) ?? layout, displays: displays, reason: "launch",
                              only: rebound, allowArrangement: false)
             }
             return
@@ -410,8 +410,8 @@ final class Engine {
         let displays = Displays.current()
         guard Displays.profileID(displays) == profile else {
             // Displays changed under us without a callback yet: do not save a shuffled layout.
-            freeze("cambio de monitores detectado")
-            scheduleSettle(after: 2.5, reason: "monitores estables")
+            freeze("display change detected")
+            scheduleSettle(after: 2.5, reason: "displays stable")
             return
         }
 
@@ -482,19 +482,19 @@ final class Engine {
            sawHotplug || sawSleepOrLock || reason == "manual",
            let origins = Displays.arrangementFix(saved: layout.displays, current: displays) {
             arrangementFixedThisCycle = true
-            Log.info("macOS cambió la disposición de los monitores; restaurando disposición guardada")
+            Log.info("macOS changed the display arrangement; restoring the saved one")
             if Displays.applyArrangement(origins, current: displays) {
                 // The reconfiguration callbacks will freeze and settle again, then restore windows.
-                setMode(.frozen, "corrigiendo disposición de monitores")
+                setMode(.frozen, "fixing display arrangement")
                 scheduleSettle(after: 3.0, reason: reason)
                 return
             }
-            Log.info("No se pudo cambiar la disposición de los monitores")
+            Log.info("Could not change the display arrangement")
         }
 
         guard AX.isTrusted else {
-            Log.info("Sin permiso de Accesibilidad: no se pueden mover ventanas")
-            lastRestore = "Falta permiso de Accesibilidad"
+            Log.info("No Accessibility permission: cannot move windows")
+            lastRestore = "Accessibility permission missing"
             beginTracking()
             return
         }
@@ -524,11 +524,11 @@ final class Engine {
         spaceMismatches = result.spaceMismatches
         let formatter = DateFormatter()
         formatter.timeStyle = .short
-        var summary = "\(formatter.string(from: Date())): \(result.moved) movidas de \(result.considered)"
-        if !result.failed.isEmpty { summary += ", \(result.failed.count) pendientes" }
+        var summary = "\(formatter.string(from: Date())): \(result.moved) moved of \(result.considered)"
+        if !result.failed.isEmpty { summary += ", \(result.failed.count) pending" }
         lastRestore = summary
         DispatchQueue.main.async { RestoreOverlay.shared.hide() }
-        Log.info("Restauración (\(reason)) \(summary); en otro escritorio: \(result.spaceMismatches)")
+        Log.info("Restore (\(reason)) \(summary); on another Space: \(result.spaceMismatches)")
         beginTracking()
     }
 
@@ -539,7 +539,7 @@ final class Engine {
         let ids = Set(pending.keys)
         let result = restorePass(layout: layout, only: ids, deep: false, overlay: false)
         for id in ids where !result.failed.contains(id) { pending.removeValue(forKey: id) }
-        if result.moved > 0 { Log.info("Restauradas \(result.moved) ventanas pendientes") }
+        if result.moved > 0 { Log.info("Restored \(result.moved) pending windows") }
         publish()
     }
 

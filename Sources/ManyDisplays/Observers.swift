@@ -39,7 +39,7 @@ final class AXHub {
                 Engine.shared.windowEvent()
             },
         ]
-        Log.info("Observando \(observers.count) apps")
+        Log.info("Observing \(observers.count) apps")
     }
 
     func stop() {

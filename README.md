@@ -1,73 +1,72 @@
 # ManyDisplays
 
-App de barra de menús (sin icono en el Dock) que guarda **en tiempo casi real** dónde está
-cada ventana —monitor, posición, tamaño y escritorio— y las devuelve a su sitio
-automáticamente cuando el Mac vuelve del reposo o del bloqueo, o cuando reconectas
-los monitores.
+A menu bar app (no Dock icon) that keeps track of every window's display, position, size and
+Space in near real time, and puts everything back automatically when your Mac wakes from sleep,
+unlocks, or when you reconnect your external displays.
 
-## Por qué existe (lo que se investigó)
+## Why it exists
 
-- macOS identifica cada monitor por los datos de su EDID (fabricante, modelo, número de serie
-  y fecha de fabricación). Cuando dos monitores idénticos dan el mismo serial (muchos
-  envían `0` o `0x01010101`), macOS no puede distinguirlos y al despertar reparte la
-  disposición y las ventanas al azar. **A octubre de 2026, Apple sigue sin resolverlo**: hay
-  hilos abiertos en los foros de desarrolladores con macOS 26 (Tahoe) y monitores idénticos.
-- En tu caso los dos **LG HDR 4K sí tienen seriales distintos** (`415816` y `333443`, fabricados
-  en años diferentes), así que se pueden distinguir de forma fiable. El desorden viene sobre
-  todo de que, al dormir o bloquear, los monitores DisplayPort/Thunderbolt se "desconectan";
-  macOS amontona las ventanas en el que vuelve primero y no las devuelve a su sitio.
-- Stay falla al "guardar" con muchas ventanas porque pregunta una a una a cada app por
-  Accesibilidad (lento, y se cuelga si una app no responde). ManyDisplays guarda leyendo la
-  lista de ventanas del servidor de ventanas: ~20 ms para cientos de ventanas, sin preguntar
-  a ninguna app.
+- macOS identifies each display by its EDID (vendor, model, serial number, manufacture date).
+  When two identical monitors report the same serial (many send `0` or `0x01010101`), macOS
+  cannot tell them apart and shuffles the arrangement and the windows after waking up.
+  **As of October 2026 Apple has not fixed this**: there are open threads on the Apple
+  Developer Forums about identical monitors on macOS 26 (Tahoe).
+- Even when the monitors *can* be told apart, DisplayPort/Thunderbolt displays "disconnect"
+  when the Mac sleeps or locks. macOS piles every window onto whichever display comes back first
+  and never moves them back.
+- Existing tools like Stay save layouts by asking every app for every window over Accessibility,
+  which is slow and hangs when one app does not respond. ManyDisplays reads the window server's
+  window list instead: ~20 ms for hundreds of windows, without talking to any app.
 
-## Cómo funciona
+## How it works
 
-| Situación | Qué hace |
+| Situation | What happens |
 |---|---|
-| Mueves o redimensionas una ventana, o abres/cierras una | Guarda en ~1,5 s (por eventos, sin polling) + comprobación ligera cada 20 s |
-| Bloqueo, reposo, pantallas en reposo, monitores reconectándose | Toma una última foto y **congela** el guardado para no grabar el desorden |
-| Vuelves (desbloqueo / despertar) y los monitores llevan unos segundos estables | Restaura: cada ventana vuelve a **su monitor físico** (por número de serie), posición y tamaño. Hace 3 pasadas porque macOS sigue moviendo ventanas un rato |
-| macOS intercambió la disposición de los monitores (izq ↔ der o el principal) | La vuelve a poner como estaba (desactivable en el menú) |
-| Solo con la MacBook, sin monitores externos | **Inactiva**: sin observadores ni temporizadores |
-| Cerraste ventanas mientras trabajabas solo con la MacBook | No se reabren: solo se mueven ventanas que siguen existiendo; las cerradas se olvidan |
-| Ventanas nuevas abiertas mientras tanto | No se tocan; desde ese momento se siguen |
+| You move, resize, open or close a window | Saved within ~1.5 s (event-driven, no polling), plus a light check every 20 s |
+| Lock, sleep, display sleep, displays reconnecting | Takes a last snapshot and **freezes** saving so the mess is never recorded |
+| You come back (unlock / wake) and the displays have been stable for a few seconds | Restores every window to **its physical display** (matched by serial number), position and size. Runs 3 passes because macOS keeps nudging windows for a while |
+| macOS swapped the display arrangement (left ↔ right or the main display) | Puts the saved arrangement back (can be turned off in the menu) |
+| MacBook alone, no external displays | **Idle**: no observers, no timers |
+| You closed windows while working on the MacBook alone | They are never reopened: only windows that still exist are moved; closed ones are forgotten |
+| New windows opened in the meantime | Left alone, and tracked from then on |
+| A display setup never seen before (e.g. same monitors with the lid open) | Restores from the closest saved setup, then tracks the new one separately |
 
-Se guarda un layout **por cada combinación de monitores** (identificados por fabricante, modelo
-y serial; si un día hubiese seriales repetidos, se desempata por UUID y luego por posición). Si
-cambias la resolución, las posiciones se escalan proporcionalmente.
+One layout is kept **per combination of displays** (identified by vendor, model and serial;
+duplicated serials fall back to the display UUID and then to position). If the resolution
+changes, positions are scaled proportionally.
 
-Datos: `~/Library/Application Support/ManyDisplays/layouts.json` · Registro: `~/Library/Logs/ManyDisplays.log`
+While windows are being restored the screens get a subtle blur with a small spinner (can be
+turned off in the menu). It only appears when something actually needs to move, never on the
+MacBook alone. A "Close" link appears after 4 s and the veil is removed after 15 s at most.
 
-## Instalar
+Data: `~/Library/Application Support/ManyDisplays/layouts.json` · Log: `~/Library/Logs/ManyDisplays.log`
+
+## Install
 
 ```bash
-scripts/build-app.sh --install   # compila, firma, copia a /Applications y la abre
+scripts/build-app.sh --install   # builds, signs, copies to /Applications and launches it
 ```
 
-La primera vez pide **Accesibilidad** (Ajustes del Sistema → Privacidad y seguridad →
-Accesibilidad → ManyDisplays). Sin ese permiso guarda posiciones igualmente, pero no puede
-mover ventanas. Se firma con tu certificado "Apple Development" para que el permiso no se
-pierda al recompilar. Activa "Abrir al iniciar sesión" desde el menú.
+On first launch it asks for **Accessibility** (System Settings → Privacy & Security →
+Accessibility → ManyDisplays). Without it, positions are still saved but windows cannot be moved.
+The app is signed with your "Apple Development" certificate so the permission survives rebuilds.
+Enable "Open at Login" from the menu.
 
-## Atajos
+## Shortcuts and commands
 
-- `⌃⌥⌘R` restaurar ahora · `⌃⌥⌘S` guardar ahora (normalmente no hace falta ninguno)
-- Desde terminal / Atajos / Raycast: `/Applications/ManyDisplays.app/Contents/MacOS/ManyDisplays --restore` (o `--save`)
-- Ver el difuminado sin mover nada: `.../ManyDisplays --preview-overlay`
-- Diagnóstico: `.../ManyDisplays --dump` muestra monitores, escritorios, ventanas y qué movería una restauración
+- `⌃⌥⌘R` restore now · `⌃⌥⌘S` save now (normally you need neither)
+- From Terminal / Shortcuts / Raycast: `/Applications/ManyDisplays.app/Contents/MacOS/ManyDisplays --restore` (or `--save`)
+- Preview the blur overlay without moving anything: `.../ManyDisplays --preview-overlay`
+- Diagnostics: `.../ManyDisplays --dump` prints displays, Spaces, windows and what a restore would move
 
-## Límite conocido: escritorios (Spaces)
+## Known limitation: Spaces
 
-Desde macOS 14.5 Apple bloqueó mover ventanas **de otras apps** entre escritorios sin
-desactivar SIP. Se comprobó en tu macOS 26.6 con los tres métodos privados conocidos
-(`CGSMoveWindowsToManagedSpace`, `SetWindowListWorkspace` con compat ID y
-`Add/RemoveWindowsFromSpaces`): ninguno funciona. En la práctica no suele importar: con
-"Las pantallas tienen Spaces separados" desactivado (tu configuración) el reposo no cambia
-de escritorio a las ventanas, solo las desordena entre monitores. Si alguna ventana acaba en
-otro escritorio, el menú lo indica.
+Since macOS 14.5 Apple blocks moving **other apps'** windows between Spaces unless SIP is
+disabled. Verified on macOS 26.6 with the three known private methods
+(`CGSMoveWindowsToManagedSpace`, `SetWindowListWorkspace` with a compat ID, and
+`Add/RemoveWindowsFromSpaces`): none of them work. In practice it rarely matters: with
+"Displays have separate Spaces" turned off, sleeping does not change a window's Space, it only
+shuffles windows between displays. If a window ends up on a different Space, the menu says so.
 
-Mientras se ordenan, las pantallas se difuminan suavemente con un pequeño indicador (desactivable en el menú; solo aparece si hay ventanas que mover y nunca solo con la MacBook).
-
-Las ventanas de otros escritorios se recolocan sin tener que visitarlos. Si una app se resiste,
-la ventana queda pendiente y se coloca al entrar en su escritorio.
+Windows on other Spaces are put back without visiting them. Some apps hide off-Space windows
+from Accessibility; those are restored as soon as you switch to their Space.

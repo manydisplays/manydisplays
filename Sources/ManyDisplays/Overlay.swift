@@ -5,7 +5,7 @@ import AppKit
 final class RestoreOverlay: NSObject {
     static let shared = RestoreOverlay()
 
-    /// After this long a "Cerrar" link shows up, in case a slow app keeps the veil on screen.
+    /// After this long a "Close" link shows up, in case a slow app keeps the veil on screen.
     private static let closeDelay: TimeInterval = 4
     /// Hard limit: the veil never stays longer than this.
     private static let maxDuration: TimeInterval = 15
@@ -57,7 +57,7 @@ final class RestoreOverlay: NSObject {
 
     /// Only hides the veil; the restore keeps going in the background.
     @objc private func closeClicked() {
-        Log.info("Difuminado cerrado por el usuario")
+        Log.info("Blur overlay closed by user")
         hide()
     }
 
@@ -98,7 +98,7 @@ final class RestoreOverlay: NSObject {
         spinner.controlSize = .small
         spinner.startAnimation(nil)
 
-        let label = NSTextField(labelWithString: "Ordenando ventanas")
+        let label = NSTextField(labelWithString: "Arranging windows")
         label.font = .systemFont(ofSize: 13, weight: .medium)
         label.textColor = .secondaryLabelColor
 
@@ -112,7 +112,7 @@ final class RestoreOverlay: NSObject {
 
         let close = NSButton(title: "", target: self, action: #selector(closeClicked))
         close.isBordered = false
-        close.attributedTitle = NSAttributedString(string: "Cerrar", attributes: [
+        close.attributedTitle = NSAttributedString(string: "Close", attributes: [
             .font: NSFont.systemFont(ofSize: 12),
             .foregroundColor: NSColor.secondaryLabelColor,
             .underlineStyle: NSUnderlineStyle.single.rawValue,

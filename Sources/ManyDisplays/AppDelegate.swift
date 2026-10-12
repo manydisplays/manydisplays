@@ -60,12 +60,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func describe(_ status: Engine.Status) -> String {
         switch status.mode {
-        case .starting: return "Iniciando…"
-        case .inactive: return "Inactivo: sin monitores externos"
-        case .tracking: return "Guardando posiciones (\(status.windowCount) ventanas)"
-        case .frozen: return "En pausa: \(status.detail)"
-        case .restoring: return "Restaurando ventanas…"
-        case .paused: return "Pausado"
+        case .starting: return "Starting…"
+        case .inactive: return "Idle: no external displays"
+        case .tracking: return "Tracking \(status.windowCount) windows"
+        case .frozen: return "On hold: \(status.detail)"
+        case .restoring: return "Restoring windows…"
+        case .paused: return "Paused"
         }
     }
 
@@ -79,48 +79,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let save = status.lastSave {
             let relative = RelativeDateTimeFormatter()
             relative.unitsStyle = .short
-            menu.addItem(disabled("Último guardado: \(relative.localizedString(for: save, relativeTo: Date()))"))
+            menu.addItem(disabled("Last saved: \(relative.localizedString(for: save, relativeTo: Date()))"))
         }
-        if let restore = status.lastRestore { menu.addItem(disabled("Última restauración: \(restore)")) }
+        if let restore = status.lastRestore { menu.addItem(disabled("Last restore: \(restore)")) }
         if status.pending > 0 {
-            menu.addItem(disabled("\(status.pending) ventanas se restaurarán al visitar su escritorio"))
+            menu.addItem(disabled("\(status.pending) windows will be restored when you visit their Space"))
         }
         if status.spaceMismatches > 0 {
-            menu.addItem(disabled("⚠︎ \(status.spaceMismatches) ventanas están en otro escritorio"))
+            menu.addItem(disabled("⚠︎ \(status.spaceMismatches) windows are on a different Space"))
         }
         if !AX.isTrusted {
             menu.addItem(.separator())
-            menu.addItem(item("Conceder permiso de Accesibilidad…", #selector(openAccessibility)))
+            menu.addItem(item("Grant Accessibility Permission…", #selector(openAccessibility)))
         }
 
         menu.addItem(.separator())
-        let restore = item("Restaurar ventanas ahora", #selector(restoreNow))
+        let restore = item("Restore Windows Now", #selector(restoreNow))
         restore.keyEquivalent = "r"
         restore.keyEquivalentModifierMask = [.control, .option, .command]
         menu.addItem(restore)
-        let save = item("Guardar posiciones ahora", #selector(saveNow))
+        let save = item("Save Positions Now", #selector(saveNow))
         save.keyEquivalent = "s"
         save.keyEquivalentModifierMask = [.control, .option, .command]
         menu.addItem(save)
 
         menu.addItem(.separator())
-        let pause = item("Pausar seguimiento", #selector(togglePause))
+        let pause = item("Pause Tracking", #selector(togglePause))
         pause.state = Settings.paused ? .on : .off
         menu.addItem(pause)
-        let arrangement = item("Corregir disposición de monitores al despertar", #selector(toggleArrangement))
+        let arrangement = item("Fix Display Arrangement After Wake", #selector(toggleArrangement))
         arrangement.state = Settings.fixArrangement ? .on : .off
         menu.addItem(arrangement)
-        let blur = item("Difuminar pantallas mientras se ordenan", #selector(toggleBlur))
+        let blur = item("Blur Screens While Restoring", #selector(toggleBlur))
         blur.state = Settings.blurWhileRestoring ? .on : .off
         menu.addItem(blur)
-        let login = item("Abrir al iniciar sesión", #selector(toggleLogin))
+        let login = item("Open at Login", #selector(toggleLogin))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
 
         menu.addItem(.separator())
-        let profilesItem = NSMenuItem(title: "Combinaciones de monitores guardadas", action: nil, keyEquivalent: "")
+        let profilesItem = NSMenuItem(title: "Saved Display Setups", action: nil, keyEquivalent: "")
         let profilesMenu = NSMenu()
-        if status.profiles.isEmpty { profilesMenu.addItem(disabled("Ninguna todavía")) }
+        if status.profiles.isEmpty { profilesMenu.addItem(disabled("None yet")) }
         let formatter = DateFormatter()
         formatter.dateStyle = .short
         formatter.timeStyle = .short
@@ -128,8 +128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let entry = NSMenuItem(title: profile.name, action: nil, keyEquivalent: "")
             entry.state = profile.isActive ? .on : .off
             let sub = NSMenu()
-            sub.addItem(disabled("\(profile.windowCount) ventanas · \(formatter.string(from: profile.updatedAt))"))
-            let forget = item("Olvidar esta combinación", #selector(forgetProfile(_:)))
+            sub.addItem(disabled("\(profile.windowCount) windows · \(formatter.string(from: profile.updatedAt))"))
+            let forget = item("Forget This Setup", #selector(forgetProfile(_:)))
             forget.representedObject = profile.id
             sub.addItem(forget)
             entry.submenu = sub
@@ -137,11 +137,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         profilesItem.submenu = profilesMenu
         menu.addItem(profilesItem)
-        menu.addItem(item("Abrir carpeta de datos", #selector(openData)))
-        menu.addItem(item("Ver registro", #selector(openLog)))
+        menu.addItem(item("Open Data Folder", #selector(openData)))
+        menu.addItem(item("Show Log", #selector(openLog)))
 
         menu.addItem(.separator())
-        menu.addItem(item("Salir de ManyDisplays", #selector(quit)))
+        menu.addItem(item("Quit ManyDisplays", #selector(quit)))
     }
 
     private func item(_ title: String, _ action: Selector) -> NSMenuItem {
@@ -170,7 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 try SMAppService.mainApp.register()
             }
         } catch {
-            Log.info("No se pudo cambiar el inicio de sesión: \(error)")
+            Log.info("Could not change login item: \(error)")
         }
     }
 

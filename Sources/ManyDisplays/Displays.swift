@@ -105,7 +105,7 @@ enum Displays {
             return LiveDisplay(
                 id: r.id,
                 key: keys[r.id] ?? r.base,
-                name: DisplayNames.name(for: r.id) ?? (builtin ? "Pantalla integrada" : "Monitor \(r.id)"),
+                name: DisplayNames.name(for: r.id) ?? (builtin ? "Built-in Display" : "Display \(r.id)"),
                 vendor: CGDisplayVendorNumber(r.id),
                 model: CGDisplayModelNumber(r.id),
                 serial: CGDisplaySerialNumber(r.id),
