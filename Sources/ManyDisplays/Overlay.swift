@@ -7,7 +7,7 @@ final class RestoreOverlay: NSObject {
     static let shared = RestoreOverlay()
 
     /// Hard limit: the veil never stays longer than this.
-    private static let maxDuration: TimeInterval = 15
+    private static let maxDuration: TimeInterval = 10
 
     private struct Screen {
         let window: NSWindow
@@ -21,6 +21,7 @@ final class RestoreOverlay: NSObject {
     private var timer: Timer?
     private var shownAt = Date()
     private var estimate: TimeInterval = 3
+    private var expired: Bool { Date().timeIntervalSince(shownAt) >= estimate }
 
     func show(estimate: TimeInterval = 3) {
         // Only with external monitors: on the MacBook alone the app never restores anything.
@@ -64,7 +65,7 @@ final class RestoreOverlay: NSObject {
             // Taking longer than usual: let the user get their screen back.
             for s in screens where s.close.isHidden {
                 s.number.stringValue = "…"
-                s.title.stringValue = "Almost done"
+                s.title.stringValue = "Almost done · click to close"
                 s.close.alphaValue = 0
                 s.close.isHidden = false
                 NSAnimationContext.runAnimationGroup { $0.duration = 0.3; s.close.animator().alphaValue = 1 }
@@ -108,7 +109,13 @@ final class RestoreOverlay: NSObject {
     }
 
     private func makeContent(in window: NSWindow, size: NSSize) -> Screen {
-        let blur = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
+        let blur = VeilView(frame: NSRect(origin: .zero, size: size))
+        // Once the countdown is over, a click anywhere gives the screen back.
+        blur.onClick = { [weak self] in
+            guard let self, self.expired else { return }
+            Log.info("Blur overlay closed by user")
+            self.hide()
+        }
         blur.material = .fullScreenUI
         blur.blendingMode = .behindWindow
         blur.state = .active
@@ -167,5 +174,14 @@ final class RestoreOverlay: NSObject {
             close.topAnchor.constraint(equalTo: card.bottomAnchor, constant: 12),
         ])
         return Screen(window: window, title: title, number: number, close: close)
+    }
+}
+
+/// The blurred veil; swallows clicks (so nothing gets moved mid-restore) and reports them.
+private final class VeilView: NSVisualEffectView {
+    var onClick: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        onClick?()
     }
 }

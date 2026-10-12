@@ -152,7 +152,7 @@ final class SystemEvents {
         observe(distributed, RemoteCommand.restore) { Engine.shared.restoreNow() }
         observe(distributed, RemoteCommand.previewOverlay) {
             // Countdown with the learned estimate, then the "Done" state.
-            let estimate = Settings.restoreDuration
+            let estimate = Settings.overlayDuration
             RestoreOverlay.shared.show(estimate: estimate)
             DispatchQueue.main.asyncAfter(deadline: .now() + estimate + 0.3) { RestoreOverlay.shared.finish() }
         }

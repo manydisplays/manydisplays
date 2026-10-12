@@ -80,11 +80,13 @@ final class Engine {
     private var nonAXWindows: Set<CGWindowID> = []
     private var lastRestoreAt = Date.distantPast
     private var overlayShownAt: Date?
+    private var restoreStartedAt = Date()
+    /// Windows a deep scan could not reach in an earlier restore (apps that hide off-desktop
+    /// windows). Not scanned again; they are placed when their desktop is shown.
+    private var knownUnreachable: Set<CGWindowID> = []
     private var titles: [CGWindowID: String] = [:]
-    /// AX elements found during the current restore cycle, and windows a deep scan could not
-    /// reach (apps that hide off-space windows); those wait until their desktop is visited.
+    /// AX elements found during the current restore cycle.
     private var axElements: [CGWindowID: AXUIElement] = [:]
-    private var unreachable: Set<CGWindowID> = []
     private var snapshotWork: DispatchWorkItem?
     private var settleWork: DispatchWorkItem?
     private var watchdogWork: DispatchWorkItem?
@@ -683,7 +685,6 @@ final class Engine {
         let myCycle = cycle
         watchdogWork?.cancel()
         axElements.removeAll()
-        unreachable.removeAll()
         setMode(.restoring, reason)
 
         if allowArrangement, Settings.fixArrangement, sawHotplug || sawSleepOrLock || reason == "manual",
@@ -700,27 +701,37 @@ final class Engine {
             return
         }
 
-        // macOS keeps nudging windows for a few seconds after displays come back,
-        // so run a few cheap passes; each one only touches windows that drifted.
+        // macOS keeps nudging windows for a few seconds after displays come back, so run a few
+        // cheap passes over what is visible (under the blur); each only touches windows that
+        // drifted. Windows on other desktops are not visible, so they are handled afterwards,
+        // with the blur already gone.
+        restoreStartedAt = Date()
         let delays: [TimeInterval] = [0, 1.5, 4.0]
         func runPass(_ index: Int, moved: Int) {
             guard cycle == myCycle else { return }
             let current = store.layout(layout.profileID) ?? layout
-            var result = restorePass(layout: current, only: only, deep: true, overlay: index == 0)
-            let movedNow = result.moved
-            result.moved += moved
-            // Once a pass finds nothing left to move, things have settled: finish early. The
-            // guard period catches anything macOS moves later.
-            let settled = index >= 1 && movedNow == 0
+            let result = restorePass(layout: current, only: only, deep: false, overlay: index == 0)
+            let settled = index >= 1 && result.moved == 0
             if index + 1 < delays.count, !settled {
                 queue.asyncAfter(deadline: .now() + (delays[index + 1] - delays[index])) {
-                    runPass(index + 1, moved: result.moved)
+                    runPass(index + 1, moved: moved + result.moved)
                 }
                 return
             }
-            finishRestore(result, layout: current, only: only, reason: reason)
+            overlayDone()
+            var final = restorePass(layout: current, only: only, deep: true, overlay: false)
+            final.moved += moved + result.moved
+            finishRestore(final, layout: current, only: only, reason: reason)
         }
         runPass(0, moved: 0)
+    }
+
+    private func overlayDone() {
+        guard let shownAt = overlayShownAt else { return }
+        let took = Date().timeIntervalSince(shownAt)
+        Settings.overlayDuration = Settings.overlayDuration * 0.6 + took * 0.4
+        overlayShownAt = nil
+        DispatchQueue.main.async { RestoreOverlay.shared.finish() }
     }
 
     private func finishRestore(_ result: PassResult, layout: Layout, only: Set<CGWindowID>?, reason: String) {
@@ -736,13 +747,8 @@ final class Engine {
         var summary = "\(formatter.string(from: Date())): \(result.moved) moved of \(result.considered)"
         if !pending.isEmpty { summary += ", \(pending.count) pending" }
         lastRestore = summary
-        if let shownAt = overlayShownAt {
-            let took = Date().timeIntervalSince(shownAt)
-            Settings.restoreDuration = Settings.restoreDuration * 0.6 + took * 0.4
-            overlayShownAt = nil
-            summary += String(format: " in %.1fs", took)
-        }
-        DispatchQueue.main.async { RestoreOverlay.shared.finish() }
+        summary += String(format: " in %.1fs", Date().timeIntervalSince(restoreStartedAt))
+        overlayDone()
         Log.info("Restore (\(reason)) \(summary); on another Space: \(result.spaceMismatches)")
         if !stillOff.isEmpty { Log.info("Not in place yet (will retry on their desktop): \(describe(stillOff, in: layout))") }
         // macOS (and some apps) can keep moving windows for a while after the displays come
@@ -841,6 +847,8 @@ final class Engine {
                 result.spaceMismatches += 1
             }
 
+            // Strips under 100 px (Chrome's tab-drag helpers and the like) are not real windows.
+            if live.frame.height < 100 || live.frame.width < 100 { continue }
             let target = targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
             if live.frame.isClose(to: target) { continue }
             jobs[live.pid, default: []].append((record.windowID, target))
@@ -849,55 +857,78 @@ final class Engine {
         // Only veil the screens when there is actually something to put back.
         if overlay, !jobs.isEmpty, Settings.blurWhileRestoring {
             overlayShownAt = Date()
-            let estimate = Settings.restoreDuration
+            let estimate = Settings.overlayDuration
             DispatchQueue.main.async { RestoreOverlay.shared.show(estimate: estimate) }
         }
 
         // Phase 1 moves everything reachable cheaply (current desktop + cached elements);
-        // phase 2 deep-scans only for what is left, so slow apps never delay the rest.
-        var remaining = jobs
-        for phaseDeep in deep ? [false, true] : [false] {
-            var next: [pid_t: [(CGWindowID, CGRect)]] = [:]
-            for (pid, list) in remaining {
-                let app = AX.application(pid)
-                let wanted = Set(list.map(\.0))
-                var elements = axElements.filter { wanted.contains($0.key) }
-                let missing = wanted.subtracting(elements.keys).subtracting(phaseDeep ? unreachable : [])
-                if !missing.isEmpty {
-                    let found = AX.elements(pid: pid, wanted: missing, deep: phaseDeep)
-                    elements.merge(found) { a, _ in a }
-                    axElements.merge(found) { a, _ in a }
-                    if phaseDeep { unreachable.formUnion(missing.subtracting(found.keys)) }
+        // phase 2 looks for windows on other desktops, in parallel across apps and skipping the
+        // ones known to be unreachable, so slow apps never delay the rest.
+        func apply(_ list: [(CGWindowID, CGRect)], pid: pid_t, elements: [CGWindowID: AXUIElement],
+                   onMissing: (CGWindowID, CGRect) -> Void) {
+            let app = AX.application(pid)
+            for (id, target) in list {
+                guard let element = elements[id] else {
+                    onMissing(id, target)
+                    continue
                 }
-                for (id, target) in list {
-                    guard let element = elements[id] else {
-                        if !phaseDeep && deep {
-                            next[pid, default: []].append((id, target))
-                            continue
-                        }
-                        // Visible but not an AX window (e.g. Chrome helper strips): nothing to do.
-                        // Off-space and hidden from AX: retry when its desktop becomes active.
-                        let onActive = capture.byID[id].map { !Set($0.spaces).isDisjoint(with: topology.active) } ?? true
-                        if onActive {
-                            nonAXWindows.insert(id)
-                        } else {
-                            result.failed.insert(id)
-                        }
-                        continue
+                if AX.isMinimized(element) { continue }
+                if AX.setFrame(element, app: app, to: target) {
+                    result.moved += 1
+                    knownUnreachable.remove(id)
+                    if let live = capture.byID[id], Set(live.spaces).isDisjoint(with: topology.active) {
+                        offSpaceWatch[id] = Watch(since: Date())
                     }
-                    if AX.isMinimized(element) { continue }
-                    if AX.setFrame(element, app: app, to: target) {
-                        result.moved += 1
-                        if let live = capture.byID[id], Set(live.spaces).isDisjoint(with: topology.active) {
-                            offSpaceWatch[id] = Watch(since: Date())
-                        }
-                    } else {
-                        axElements.removeValue(forKey: id)
-                        result.failed.insert(id)
-                    }
+                } else {
+                    axElements.removeValue(forKey: id)
+                    result.failed.insert(id)
                 }
             }
-            remaining = next
+        }
+        func isOnActiveDesktop(_ id: CGWindowID) -> Bool {
+            capture.byID[id].map { !Set($0.spaces).isDisjoint(with: topology.active) } ?? true
+        }
+
+        var leftForDeep: [pid_t: [(CGWindowID, CGRect)]] = [:]
+        for (pid, list) in jobs {
+            let wanted = Set(list.map(\.0))
+            var elements = axElements.filter { wanted.contains($0.key) }
+            let missing = wanted.subtracting(elements.keys)
+            if !missing.isEmpty {
+                let found = AX.elements(pid: pid, wanted: missing, deep: false)
+                elements.merge(found) { a, _ in a }
+                axElements.merge(found) { a, _ in a }
+            }
+            apply(list, pid: pid, elements: elements) { id, target in
+                if isOnActiveDesktop(id) {
+                    nonAXWindows.insert(id) // visible yet not an AX window: nothing to move
+                } else if deep && !knownUnreachable.contains(id) {
+                    leftForDeep[pid, default: []].append((id, target))
+                } else {
+                    result.failed.insert(id) // retried when its desktop is shown
+                }
+            }
+        }
+
+        if !leftForDeep.isEmpty {
+            let work = Array(leftForDeep)
+            let lock = NSLock()
+            var foundByPid: [pid_t: [CGWindowID: AXUIElement]] = [:]
+            DispatchQueue.concurrentPerform(iterations: work.count) { i in
+                let (pid, list) = work[i]
+                let found = AX.elements(pid: pid, wanted: Set(list.map(\.0)), deep: true, budget: 1.0)
+                lock.lock()
+                foundByPid[pid] = found
+                lock.unlock()
+            }
+            for (pid, list) in work {
+                let found = foundByPid[pid] ?? [:]
+                axElements.merge(found) { a, _ in a }
+                apply(list, pid: pid, elements: found) { id, _ in
+                    knownUnreachable.insert(id)
+                    result.failed.insert(id)
+                }
+            }
         }
         return result
     }

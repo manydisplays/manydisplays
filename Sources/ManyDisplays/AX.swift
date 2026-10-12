@@ -42,7 +42,8 @@ enum AX {
     /// other spaces (which kAXWindowsAttribute hides): it builds remote element tokens
     /// directly, the technique AltTab uses. Element ids grow over an app's lifetime (Chrome
     /// reaches ~20k after days open), so the scan is wide but stops as soon as all are found.
-    static func elements(pid: pid_t, wanted: Set<CGWindowID>, deep: Bool) -> [CGWindowID: AXUIElement] {
+    static func elements(pid: pid_t, wanted: Set<CGWindowID>, deep: Bool,
+                         budget: TimeInterval = 1.0) -> [CGWindowID: AXUIElement] {
         let app = application(pid)
         var found: [CGWindowID: AXUIElement] = [:]
         for element in standardWindows(app) {
@@ -54,7 +55,7 @@ enum AX {
         token.replaceSubrange(0..<4, with: withUnsafeBytes(of: pid) { Data($0) })
         token.replaceSubrange(4..<8, with: withUnsafeBytes(of: Int32(0)) { Data($0) })
         token.replaceSubrange(8..<12, with: withUnsafeBytes(of: Int32(0x636F_636F)) { Data($0) })
-        let deadline = Date().addingTimeInterval(2.5)
+        let deadline = Date().addingTimeInterval(budget)
         for elementID: UInt64 in 0..<60_000 {
             if elementID % 1000 == 0, Date() > deadline { break }
             token.replaceSubrange(12..<20, with: withUnsafeBytes(of: elementID) { Data($0) })

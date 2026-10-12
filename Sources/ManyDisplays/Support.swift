@@ -51,10 +51,10 @@ enum Settings {
         set { defaults.set(newValue, forKey: "blurWhileRestoring") }
     }
 
-    /// Smoothed duration of recent restores, used for the overlay countdown.
-    static var restoreDuration: TimeInterval {
-        get { defaults.object(forKey: "restoreDuration") as? Double ?? 3.5 }
-        set { defaults.set(newValue, forKey: "restoreDuration") }
+    /// Smoothed time the blur overlay stays up (visible windows only), for its countdown.
+    static var overlayDuration: TimeInterval {
+        get { defaults.object(forKey: "overlayDuration") as? Double ?? 2.0 }
+        set { defaults.set(newValue, forKey: "overlayDuration") }
     }
 
     static var paused: Bool {
