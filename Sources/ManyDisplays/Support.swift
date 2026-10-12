@@ -92,6 +92,13 @@ enum DisplayNames {
 }
 
 extension CGRect {
+    /// Close enough to count as restored: exact position, a little slack on size for apps that
+    /// snap their size to a grid (terminals, editors).
+    func matches(_ target: CGRect) -> Bool {
+        abs(minX - target.minX) <= 4 && abs(minY - target.minY) <= 4
+            && abs(width - target.width) <= 20 && abs(height - target.height) <= 20
+    }
+
     func isClose(to other: CGRect, tolerance: CGFloat = 3) -> Bool {
         abs(minX - other.minX) <= tolerance && abs(minY - other.minY) <= tolerance
             && abs(width - other.width) <= tolerance && abs(height - other.height) <= tolerance

@@ -60,6 +60,12 @@ final class Engine {
     /// Windows whose restore failed (e.g. the app refused); their saved position is protected
     /// from being overwritten until they are restored or the protection expires.
     private var pending: [CGWindowID: Date] = [:]
+    /// How many times a pending window was retried on its desktop without sticking.
+    private var pendingAttempts: [CGWindowID: Int] = [:]
+    /// Right after a restore, apps (VS Code, Electron…) or macOS sometimes move windows back.
+    /// Until this date, such drift is undone instead of being saved as the new position.
+    private var guardUntil = Date.distantPast
+    private var guardAttempts: [CGWindowID: Int] = [:]
     private var titles: [CGWindowID: String] = [:]
     /// AX elements found during the current restore cycle, and windows a deep scan could not
     /// reach (apps that hide off-space windows); those wait until their desktop is visited.
@@ -329,6 +335,7 @@ final class Engine {
         if profile != activeProfileID {
             Log.info("Display setup: \(Displays.profileName(displays.map { DisplayInfo($0) }))")
             pending.removeAll()
+            pendingAttempts.removeAll()
         }
         activeProfileID = profile
 
@@ -529,6 +536,7 @@ final class Engine {
         pending = pending.filter { $0.value > now && capture.existing.contains($0.key) }
 
         var layout = store.layout(profile) ?? Layout(profileID: profile)
+        let drifted = guardedDrift(layout: layout, capture: capture, displays: displays)
         if hdrCacheStale {
             hdrCache = DisplayPanel.hdrStates()
             hdrCacheStale = false
@@ -539,7 +547,7 @@ final class Engine {
         var windows = layout.windows.filter { capture.existing.contains(CGWindowID($0.key) ?? 0) }
 
         for window in capture.trackable {
-            if pending[window.id] != nil { continue }
+            if pending[window.id] != nil || drifted.contains(window.id) { continue }
             guard let display = Displays.best(for: window.frame, in: displays) else { continue }
             let key = String(window.id)
             let app = apps.info(window.pid)
@@ -561,8 +569,36 @@ final class Engine {
         layout.windows = windows
 
         if store.put(layout) { scheduleFlush() }
+        if !drifted.isEmpty {
+            Log.info("Moved again by macOS or the app right after restoring; putting back: \(describe(drifted, in: layout))")
+            let result = restorePass(layout: layout, only: drifted, deep: false, overlay: false)
+            if result.moved == 0 { for id in drifted { guardAttempts[id] = 3 } }
+        }
         lastSave = now
         publish()
+    }
+
+    /// During the guard period after a restore, windows that left their restored position
+    /// without the user dragging them are put back (up to 3 times each) instead of saved.
+    private func guardedDrift(layout: Layout, capture: WindowCapture, displays: [LiveDisplay]) -> Set<CGWindowID> {
+        guard Date() < guardUntil else { return [] }
+        if NSEvent.pressedMouseButtons != 0 {
+            guardUntil = .distantPast // the user is moving things: their changes win
+            return []
+        }
+        let byKey = Dictionary(displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        let savedDisplays = Dictionary(layout.displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        var drifted: Set<CGWindowID> = []
+        for window in capture.trackable where pending[window.id] == nil && guardAttempts[window.id, default: 0] < 3 {
+            guard let record = layout.windows[String(window.id)], !record.fullscreen,
+                  let display = byKey[record.displayKey] else { continue }
+            let target = targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
+            if !window.frame.matches(target) {
+                drifted.insert(window.id)
+                guardAttempts[window.id, default: 0] += 1
+            }
+        }
+        return drifted
     }
 
     private func scheduleFlush() {
@@ -618,22 +654,29 @@ final class Engine {
                 }
                 return
             }
-            finishRestore(result, reason: reason)
+            finishRestore(result, layout: current, only: only, reason: reason)
         }
         runPass(0, moved: 0)
     }
 
-    private func finishRestore(_ result: PassResult, reason: String) {
+    private func finishRestore(_ result: PassResult, layout: Layout, only: Set<CGWindowID>?, reason: String) {
+        // Trust the window server, not the AX return codes: anything that is still not where
+        // it belongs stays pending (its saved position is protected) and is retried when its
+        // desktop is shown.
+        let stillOff = offTarget(layout: layout, only: only)
         let expiry = Date().addingTimeInterval(30 * 60)
-        for id in result.failed { pending[id] = expiry }
+        for id in result.failed.union(stillOff) { pending[id] = expiry }
         spaceMismatches = result.spaceMismatches
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         var summary = "\(formatter.string(from: Date())): \(result.moved) moved of \(result.considered)"
-        if !result.failed.isEmpty { summary += ", \(result.failed.count) pending" }
+        if !pending.isEmpty { summary += ", \(pending.count) pending" }
         lastRestore = summary
         DispatchQueue.main.async { RestoreOverlay.shared.hide() }
         Log.info("Restore (\(reason)) \(summary); on another Space: \(result.spaceMismatches)")
+        if !stillOff.isEmpty { Log.info("Not in place yet (will retry on their desktop): \(describe(stillOff, in: layout))") }
+        guardUntil = Date().addingTimeInterval(20)
+        guardAttempts.removeAll()
         beginTracking()
     }
 
@@ -643,9 +686,55 @@ final class Engine {
               let layout = store.layout(profile) else { return }
         let ids = Set(pending.keys)
         let result = restorePass(layout: layout, only: ids, deep: false, overlay: false)
-        for id in ids where !result.failed.contains(id) { pending.removeValue(forKey: id) }
-        if result.moved > 0 { Log.info("Restored \(result.moved) pending windows") }
-        publish()
+        guard result.moved > 0 || !result.failed.isEmpty else { return }
+        // Check a moment later whether they stayed; give up on a window after a few visits so a
+        // window an app refuses to move never blocks saving forever.
+        queue.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+            guard let self, self.mode == .tracking else { return }
+            let current = self.store.layout(profile) ?? layout
+            let stillOff = self.offTarget(layout: current, only: ids)
+            var restored = 0
+            for id in ids where self.pending[id] != nil {
+                if stillOff.contains(id) {
+                    let attempts = self.pendingAttempts[id, default: 0] + 1
+                    self.pendingAttempts[id] = attempts
+                    if attempts >= 3 {
+                        self.pending.removeValue(forKey: id)
+                        self.pendingAttempts.removeValue(forKey: id)
+                        Log.info("Giving up on \(self.describe([id], in: current)); keeping where the app put it")
+                    }
+                } else if !Spaces.spaces(for: id).isEmpty {
+                    self.pending.removeValue(forKey: id)
+                    self.pendingAttempts.removeValue(forKey: id)
+                    restored += 1
+                }
+            }
+            if restored > 0 { Log.info("Restored \(restored) pending windows on their desktop") }
+            self.publish()
+        }
+    }
+
+    /// Windows (among `only`, or all) that exist, could be restored, and are not at their target.
+    private func offTarget(layout: Layout, only: Set<CGWindowID>?) -> Set<CGWindowID> {
+        let displays = Displays.current()
+        let byKey = Dictionary(displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        let savedDisplays = Dictionary(layout.displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        let topology = Spaces.topology()
+        let capture = WindowList.capture(topology: topology, ownPID: ownPID)
+        var result: Set<CGWindowID> = []
+        for record in layout.windows.values {
+            if let only, !only.contains(record.windowID) { continue }
+            guard let live = capture.byID[record.windowID], !record.fullscreen,
+                  !live.spaces.contains(where: { topology.types[$0] == 4 }),
+                  let display = byKey[record.displayKey] else { continue }
+            let target = targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
+            if !live.frame.matches(target) { result.insert(record.windowID) }
+        }
+        return result
+    }
+
+    private func describe(_ ids: Set<CGWindowID>, in layout: Layout) -> String {
+        ids.sorted().map { "\(layout.windows[String($0)]?.appName ?? "?") \($0)" }.joined(separator: ", ")
     }
 
     private func restorePass(layout: Layout, only: Set<CGWindowID>?, deep: Bool, overlay: Bool) -> PassResult {
