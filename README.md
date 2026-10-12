@@ -54,6 +54,7 @@ pierda al recompilar. Activa "Abrir al iniciar sesión" desde el menú.
 
 - `⌃⌥⌘R` restaurar ahora · `⌃⌥⌘S` guardar ahora (normalmente no hace falta ninguno)
 - Desde terminal / Atajos / Raycast: `/Applications/ManyDisplays.app/Contents/MacOS/ManyDisplays --restore` (o `--save`)
+- Ver el difuminado sin mover nada: `.../ManyDisplays --preview-overlay`
 - Diagnóstico: `.../ManyDisplays --dump` muestra monitores, escritorios, ventanas y qué movería una restauración
 
 ## Límite conocido: escritorios (Spaces)

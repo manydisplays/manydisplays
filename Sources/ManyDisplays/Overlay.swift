@@ -2,10 +2,16 @@ import AppKit
 
 /// Blurred veil with a spinner over every display while windows are being put back,
 /// so the shuffling is not visible. Main thread only.
-final class RestoreOverlay {
+final class RestoreOverlay: NSObject {
     static let shared = RestoreOverlay()
 
+    /// After this long a "Cerrar" link shows up, in case a slow app keeps the veil on screen.
+    private static let closeDelay: TimeInterval = 4
+    /// Hard limit: the veil never stays longer than this.
+    private static let maxDuration: TimeInterval = 15
+
     private var windows: [NSWindow] = []
+    private var closeButtons: [NSButton] = []
     private var hideWork: DispatchWorkItem?
 
     func show() {
@@ -34,7 +40,25 @@ final class RestoreOverlay {
         hideWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.hide() }
         hideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 15, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.maxDuration, execute: work)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.closeDelay) { [weak self] in
+            guard let self else { return }
+            for button in self.closeButtons {
+                button.alphaValue = 0
+                button.isHidden = false
+            }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.4
+                self.closeButtons.forEach { $0.animator().alphaValue = 1 }
+            }
+        }
+    }
+
+    /// Only hides the veil; the restore keeps going in the background.
+    @objc private func closeClicked() {
+        Log.info("Difuminado cerrado por el usuario")
+        hide()
     }
 
     func hide() {
@@ -43,6 +67,7 @@ final class RestoreOverlay {
         guard !windows.isEmpty else { return }
         let closing = windows
         windows.removeAll()
+        closeButtons.removeAll()
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.5
             closing.forEach { $0.animator().alphaValue = 0 }
@@ -84,7 +109,22 @@ final class RestoreOverlay {
         stack.translatesAutoresizingMaskIntoConstraints = false
         pill.addSubview(stack)
         blur.addSubview(pill)
+
+        let close = NSButton(title: "", target: self, action: #selector(closeClicked))
+        close.isBordered = false
+        close.attributedTitle = NSAttributedString(string: "Cerrar", attributes: [
+            .font: NSFont.systemFont(ofSize: 12),
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+        ])
+        close.isHidden = true
+        close.translatesAutoresizingMaskIntoConstraints = false
+        blur.addSubview(close)
+        closeButtons.append(close)
+
         NSLayoutConstraint.activate([
+            close.centerXAnchor.constraint(equalTo: blur.centerXAnchor),
+            close.topAnchor.constraint(equalTo: pill.bottomAnchor, constant: 12),
             stack.leadingAnchor.constraint(equalTo: pill.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: pill.trailingAnchor),
             stack.topAnchor.constraint(equalTo: pill.topAnchor),

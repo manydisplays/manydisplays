@@ -111,6 +111,7 @@ private let axCallback: AXObserverCallback = { observer, element, notification, 
 enum RemoteCommand {
     static let save = Notification.Name("com.martinacuna.manydisplays.save")
     static let restore = Notification.Name("com.martinacuna.manydisplays.restore")
+    static let previewOverlay = Notification.Name("com.martinacuna.manydisplays.previewOverlay")
 }
 
 /// System-wide signals: display reconfiguration, sleep/wake, lock/unlock, space changes.
@@ -147,6 +148,7 @@ final class SystemEvents {
 
         observe(distributed, RemoteCommand.save) { Engine.shared.saveNow() }
         observe(distributed, RemoteCommand.restore) { Engine.shared.restoreNow() }
+        observe(distributed, RemoteCommand.previewOverlay) { RestoreOverlay.shared.show() }
 
         observe(NotificationCenter.default, NSApplication.didChangeScreenParametersNotification) { DisplayNames.refresh() }
     }

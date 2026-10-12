@@ -6,7 +6,8 @@ if CommandLine.arguments.contains("--dump") {
 }
 
 // `ManyDisplays --save` / `--restore` talk to the running instance (handy for Shortcuts/Raycast).
-for (flag, name) in [("--save", RemoteCommand.save), ("--restore", RemoteCommand.restore)]
+for (flag, name) in [("--save", RemoteCommand.save), ("--restore", RemoteCommand.restore),
+                     ("--preview-overlay", RemoteCommand.previewOverlay)]
 where CommandLine.arguments.contains(flag) {
     DistributedNotificationCenter.default().postNotificationName(name, object: nil, userInfo: nil, deliverImmediately: true)
     exit(0)
