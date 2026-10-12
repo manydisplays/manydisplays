@@ -66,5 +66,7 @@ desactivar SIP. Se comprobó en tu macOS 26.6 con los tres métodos privados con
 de escritorio a las ventanas, solo las desordena entre monitores. Si alguna ventana acaba en
 otro escritorio, el menú lo indica.
 
+Mientras se ordenan, las pantallas se difuminan suavemente con un pequeño indicador (desactivable en el menú; solo aparece si hay ventanas que mover y nunca solo con la MacBook).
+
 Las ventanas de otros escritorios se recolocan sin tener que visitarlos. Si una app se resiste,
 la ventana queda pendiente y se coloca al entrar en su escritorio.

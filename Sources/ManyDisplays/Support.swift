@@ -46,6 +46,11 @@ enum Settings {
         set { defaults.set(newValue, forKey: "fixArrangement") }
     }
 
+    static var blurWhileRestoring: Bool {
+        get { defaults.object(forKey: "blurWhileRestoring") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "blurWhileRestoring") }
+    }
+
     static var paused: Bool {
         get { defaults.bool(forKey: "paused") }
         set { defaults.set(newValue, forKey: "paused") }

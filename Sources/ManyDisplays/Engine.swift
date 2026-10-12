@@ -256,6 +256,7 @@ final class Engine {
         settleWork?.cancel()
         if mode != .frozen { Log.info("Pausa: \(reason)") }
         setMode(.frozen, reason)
+        DispatchQueue.main.async { RestoreOverlay.shared.hide() }
 
         // Safety net in case a wake/unlock notification never arrives.
         watchdogWork?.cancel()
@@ -504,7 +505,7 @@ final class Engine {
         func runPass(_ index: Int, moved: Int) {
             guard cycle == myCycle else { return }
             let current = store.layout(layout.profileID) ?? layout
-            var result = restorePass(layout: current, only: only, deep: true)
+            var result = restorePass(layout: current, only: only, deep: true, overlay: index == 0)
             result.moved += moved
             if index + 1 < delays.count {
                 queue.asyncAfter(deadline: .now() + (delays[index + 1] - delays[index])) {
@@ -526,6 +527,7 @@ final class Engine {
         var summary = "\(formatter.string(from: Date())): \(result.moved) movidas de \(result.considered)"
         if !result.failed.isEmpty { summary += ", \(result.failed.count) pendientes" }
         lastRestore = summary
+        DispatchQueue.main.async { RestoreOverlay.shared.hide() }
         Log.info("Restauración (\(reason)) \(summary); en otro escritorio: \(result.spaceMismatches)")
         beginTracking()
     }
@@ -535,13 +537,13 @@ final class Engine {
         guard mode == .tracking, !pending.isEmpty, let profile = activeProfileID,
               let layout = store.layout(profile) else { return }
         let ids = Set(pending.keys)
-        let result = restorePass(layout: layout, only: ids, deep: false)
+        let result = restorePass(layout: layout, only: ids, deep: false, overlay: false)
         for id in ids where !result.failed.contains(id) { pending.removeValue(forKey: id) }
         if result.moved > 0 { Log.info("Restauradas \(result.moved) ventanas pendientes") }
         publish()
     }
 
-    private func restorePass(layout: Layout, only: Set<CGWindowID>?, deep: Bool) -> PassResult {
+    private func restorePass(layout: Layout, only: Set<CGWindowID>?, deep: Bool, overlay: Bool) -> PassResult {
         var result = PassResult()
         let displays = Displays.current()
         let byKey = Dictionary(displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
@@ -568,6 +570,11 @@ final class Engine {
             let target = targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
             if live.frame.isClose(to: target) { continue }
             jobs[live.pid, default: []].append((record.windowID, target))
+        }
+
+        // Only veil the screens when there is actually something to put back.
+        if overlay, !jobs.isEmpty, Settings.blurWhileRestoring {
+            DispatchQueue.main.async { RestoreOverlay.shared.show() }
         }
 
         // Phase 1 moves everything reachable cheaply (current desktop + cached elements);

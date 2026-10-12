@@ -110,6 +110,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let arrangement = item("Corregir disposición de monitores al despertar", #selector(toggleArrangement))
         arrangement.state = Settings.fixArrangement ? .on : .off
         menu.addItem(arrangement)
+        let blur = item("Difuminar pantallas mientras se ordenan", #selector(toggleBlur))
+        blur.state = Settings.blurWhileRestoring ? .on : .off
+        menu.addItem(blur)
         let login = item("Abrir al iniciar sesión", #selector(toggleLogin))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
@@ -157,6 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func saveNow() { Engine.shared.saveNow() }
     @objc private func togglePause() { Engine.shared.setPaused(!Settings.paused) }
     @objc private func toggleArrangement() { Settings.fixArrangement.toggle() }
+    @objc private func toggleBlur() { Settings.blurWhileRestoring.toggle() }
 
     @objc private func toggleLogin() {
         do {
