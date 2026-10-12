@@ -67,6 +67,13 @@ final class Engine {
     private var guardUntil = Date.distantPast
     private var guardAttempts: [CGWindowID: Int] = [:]
     private var guardStart = Date.distantPast
+    /// Windows restored while their desktop was not visible. macOS/apps often re-adjust them when
+    /// that desktop is first shown, so they stay guarded until then (plus a few seconds).
+    private struct Watch {
+        let since: Date
+        var visibleSince: Date?
+    }
+    private var offSpaceWatch: [CGWindowID: Watch] = [:]
     /// Windows the user moved/resized themselves (mouse or shortcut right before the change).
     private var userMovedAt: [CGWindowID: Date] = [:]
     /// Window-server windows that are not real AX windows (e.g. Chrome's 89 px helper strips).
@@ -355,6 +362,7 @@ final class Engine {
             Log.info("Display setup: \(Displays.profileName(displays.map { DisplayInfo($0) }))")
             pending.removeAll()
             pendingAttempts.removeAll()
+            offSpaceWatch.removeAll()
         }
         activeProfileID = profile
 
@@ -555,7 +563,7 @@ final class Engine {
         pending = pending.filter { $0.value > now && capture.existing.contains($0.key) }
 
         var layout = store.layout(profile) ?? Layout(profileID: profile)
-        let drifted = guardedDrift(layout: layout, capture: capture, displays: displays)
+        let drifted = guardedDrift(layout: layout, capture: capture, displays: displays, topology: topology)
         if hdrCacheStale {
             hdrCache = DisplayPanel.hdrStates()
             hdrCacheStale = false
@@ -611,8 +619,16 @@ final class Engine {
 
     /// During the guard period after a restore, windows that left their restored position
     /// without the user dragging them are put back (up to 3 times each) instead of saved.
-    private func guardedDrift(layout: Layout, capture: WindowCapture, displays: [LiveDisplay]) -> Set<CGWindowID> {
-        guard Date() < guardUntil else { return [] }
+    private func guardedDrift(layout: Layout, capture: WindowCapture, displays: [LiveDisplay],
+                              topology: SpaceTopology) -> Set<CGWindowID> {
+        let now = Date()
+        offSpaceWatch = offSpaceWatch.filter { entry in
+            guard now.timeIntervalSince(entry.value.since) < 2 * 3600, capture.existing.contains(entry.key) else { return false }
+            if let visible = entry.value.visibleSince { return now.timeIntervalSince(visible) < 20 }
+            return true
+        }
+        let globalGuard = now < guardUntil
+        guard globalGuard || !offSpaceWatch.isEmpty else { return [] }
         if NSEvent.pressedMouseButtons != 0 || UserInput.happened(within: 1.0) {
             return [] // the user is busy moving things right now; check again on the next snapshot
         }
@@ -620,9 +636,17 @@ final class Engine {
         let savedDisplays = Dictionary(layout.displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         var drifted: Set<CGWindowID> = []
         var details: [String] = []
-        for window in capture.trackable where pending[window.id] == nil && !nonAXWindows.contains(window.id)
-            && guardAttempts[window.id, default: 0] < 3 && (userMovedAt[window.id] ?? .distantPast) < guardStart {
-            guard let record = layout.windows[String(window.id)], !record.fullscreen,
+        for window in capture.trackable where pending[window.id] == nil && !nonAXWindows.contains(window.id) {
+            if var watch = offSpaceWatch[window.id], watch.visibleSince == nil,
+               !Set(window.spaces).isDisjoint(with: topology.active) {
+                watch.visibleSince = now
+                offSpaceWatch[window.id] = watch
+            }
+            let watchedSince = offSpaceWatch[window.id]?.since
+            guard globalGuard || watchedSince != nil else { continue }
+            let guardFrom = min(watchedSince ?? guardStart, guardStart)
+            guard guardAttempts[window.id, default: 0] < 3, (userMovedAt[window.id] ?? .distantPast) < guardFrom,
+                  let record = layout.windows[String(window.id)], !record.fullscreen,
                   let display = byKey[record.displayKey] else { continue }
             let target = targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
             if !window.frame.matches(target) {
@@ -632,7 +656,7 @@ final class Engine {
             }
         }
         if !details.isEmpty {
-            Log.info("Moved by macOS/app \(Int(Date().timeIntervalSince(guardStart)))s after restoring (no user input); putting back: " + details.joined(separator: "; "))
+            Log.info("Moved by macOS/app \(Int(now.timeIntervalSince(guardStart)))s after restoring (no user input); putting back: " + details.joined(separator: "; "))
         }
         return drifted
     }
@@ -864,6 +888,9 @@ final class Engine {
                     if AX.isMinimized(element) { continue }
                     if AX.setFrame(element, app: app, to: target) {
                         result.moved += 1
+                        if let live = capture.byID[id], Set(live.spaces).isDisjoint(with: topology.active) {
+                            offSpaceWatch[id] = Watch(since: Date())
+                        }
                     } else {
                         axElements.removeValue(forKey: id)
                         result.failed.insert(id)
