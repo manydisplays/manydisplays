@@ -1,7 +1,9 @@
 {
   "tabs" : [
     {
-      "cost" : 4.376604499999999,
+      "browser" : "builtIn",
+      "browserURL" : "https:\/\/www.reddit.com\/r\/mac\/comments\/11evhk0\/how_to_stop_my_extended_displays_from_swapping\/",
+      "cost" : 7.032583800000001,
       "effort" : "medium",
       "id" : "15E6EA43-5F9C-41EF-8972-01354BCDC2A9",
       "permissionMode" : "bypassPermissions",

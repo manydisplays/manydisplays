@@ -107,7 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let pause = item("Pause Tracking", #selector(togglePause))
         pause.state = Settings.paused ? .on : .off
         menu.addItem(pause)
-        let arrangement = item("Fix Display Arrangement After Wake", #selector(toggleArrangement))
+        let arrangement = item("Restore Display Arrangement & Resolution", #selector(toggleArrangement))
         arrangement.state = Settings.fixArrangement ? .on : .off
         menu.addItem(arrangement)
         let blur = item("Blur Screens While Restoring", #selector(toggleBlur))

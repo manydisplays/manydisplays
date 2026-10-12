@@ -18,6 +18,8 @@ struct LiveDisplay {
     let bounds: CGRect
     let pixelWidth: Int
     let pixelHeight: Int
+    let refreshRate: Double
+    let modeID: Int32
 }
 
 /// What we persist about a display inside a layout.
@@ -33,6 +35,9 @@ struct DisplayInfo: Codable, Equatable {
     var frame: CGRect
     var pixelWidth: Int
     var pixelHeight: Int
+    /// Optional so layouts saved by older builds still decode.
+    var refreshRate: Double?
+    var modeID: Int32?
 
     init(_ d: LiveDisplay) {
         key = d.key
@@ -46,6 +51,8 @@ struct DisplayInfo: Codable, Equatable {
         frame = d.bounds
         pixelWidth = d.pixelWidth
         pixelHeight = d.pixelHeight
+        refreshRate = d.refreshRate
+        modeID = d.modeID
     }
 }
 
@@ -114,7 +121,9 @@ enum Displays {
                 isMain: CGDisplayIsMain(r.id) != 0,
                 bounds: CGDisplayBounds(r.id),
                 pixelWidth: mode?.pixelWidth ?? 0,
-                pixelHeight: mode?.pixelHeight ?? 0
+                pixelHeight: mode?.pixelHeight ?? 0,
+                refreshRate: mode?.refreshRate ?? 0,
+                modeID: mode?.ioDisplayModeID ?? 0
             )
         }
     }
@@ -152,29 +161,55 @@ enum Displays {
         }
     }
 
-    /// When macOS wakes up with the same monitors but swaps their arrangement (the classic
-    /// identical-monitor bug), returns the saved origins to put them back. Nil if nothing to fix
-    /// or if the situation is not a pure swap (different set of displays or resolutions).
-    static func arrangementFix(saved: [DisplayInfo], current: [LiveDisplay]) -> [String: CGPoint]? {
-        guard current.count >= 2, Set(saved.map(\.key)) == Set(current.map(\.key)) else { return nil }
-        let savedByKey = Dictionary(saved.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
-        var differs = false
+    struct ConfigurationFix {
         var origins: [String: CGPoint] = [:]
-        for d in current {
-            guard let s = savedByKey[d.key], s.frame.size == d.bounds.size else { return nil }
-            if s.frame.origin != d.bounds.origin { differs = true }
-            origins[d.key] = s.frame.origin
-        }
-        guard differs, origins.values.contains(.zero) else { return nil }
-        return origins
+        var modes: [String: CGDisplayMode] = [:]
+        var arrangementChanged = false
     }
 
-    static func applyArrangement(_ origins: [String: CGPoint], current: [LiveDisplay]) -> Bool {
+    /// After waking up or reconnecting with the same monitors, macOS sometimes swaps the
+    /// arrangement of identical monitors (left/right or the main display) and/or forgets their
+    /// resolution or refresh rate. Returns what to change to get back to the saved setup, or nil
+    /// if it already matches (or the set of displays is different).
+    static func configurationFix(saved: [DisplayInfo], current: [LiveDisplay]) -> ConfigurationFix? {
+        guard !current.isEmpty, Set(saved.map(\.key)) == Set(current.map(\.key)) else { return nil }
+        let savedByKey = Dictionary(saved.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        var fix = ConfigurationFix()
+        for d in current {
+            guard let s = savedByKey[d.key] else { return nil }
+            fix.origins[d.key] = s.frame.origin
+            if current.count >= 2, s.frame.origin != d.bounds.origin { fix.arrangementChanged = true }
+            let sameMode = s.frame.size == d.bounds.size && s.pixelWidth == d.pixelWidth
+                && s.pixelHeight == d.pixelHeight
+                && (s.refreshRate.map { abs($0 - d.refreshRate) < 0.5 } ?? true)
+            if !sameMode, let mode = matchingMode(for: s, on: d.id) { fix.modes[d.key] = mode }
+        }
+        guard fix.arrangementChanged || !fix.modes.isEmpty, fix.origins.values.contains(.zero) else { return nil }
+        return fix
+    }
+
+    private static func matchingMode(for saved: DisplayInfo, on display: CGDirectDisplayID) -> CGDisplayMode? {
+        let options = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
+        guard let modes = CGDisplayCopyAllDisplayModes(display, options) as? [CGDisplayMode] else { return nil }
+        let candidates = modes.filter {
+            $0.width == Int(saved.frame.width) && $0.height == Int(saved.frame.height)
+                && $0.pixelWidth == saved.pixelWidth && $0.pixelHeight == saved.pixelHeight
+        }
+        if let id = saved.modeID, let exact = candidates.first(where: { $0.ioDisplayModeID == id }) { return exact }
+        if let rate = saved.refreshRate {
+            return candidates.min { abs($0.refreshRate - rate) < abs($1.refreshRate - rate) }
+        }
+        return candidates.first
+    }
+
+    static func apply(_ fix: ConfigurationFix, current: [LiveDisplay]) -> Bool {
         var config: CGDisplayConfigRef?
         guard CGBeginDisplayConfiguration(&config) == .success, let config else { return false }
         for d in current {
-            guard let p = origins[d.key] else { continue }
-            CGConfigureDisplayOrigin(config, d.id, Int32(p.x), Int32(p.y))
+            if let mode = fix.modes[d.key] { CGConfigureDisplayWithDisplayMode(config, d.id, mode, nil) }
+            if fix.arrangementChanged, let p = fix.origins[d.key] {
+                CGConfigureDisplayOrigin(config, d.id, Int32(p.x), Int32(p.y))
+            }
         }
         let err = CGCompleteDisplayConfiguration(config, .permanently)
         if err != .success {

@@ -7,7 +7,7 @@ enum Diagnostics {
         let displays = Displays.current()
         print("== Displays (\(displays.count))  profile: \(Displays.profileID(displays))")
         for d in displays {
-            print("  \(d.key)  \(d.name)  id=\(d.id) main=\(d.isMain) builtin=\(d.isBuiltin) bounds=\(d.bounds) px=\(d.pixelWidth)x\(d.pixelHeight) serial=\(d.serial) uuid=\(d.uuid)")
+            print("  \(d.key)  \(d.name)  id=\(d.id) main=\(d.isMain) builtin=\(d.isBuiltin) bounds=\(d.bounds) px=\(d.pixelWidth)x\(d.pixelHeight)@\(Int(d.refreshRate))Hz mode=\(d.modeID) serial=\(d.serial) uuid=\(d.uuid)")
         }
 
         let topology = Spaces.topology()
@@ -47,6 +47,11 @@ enum Diagnostics {
             print("  \(layout.profileID == profile ? "*" : " ") \(Displays.profileName(layout.displays))  \(layout.windows.count) windows  \(layout.updatedAt)")
         }
         guard let layout = store.layout(profile) else { return }
+        if let fix = Displays.configurationFix(saved: layout.displays, current: displays) {
+            print("== Display setup differs from saved: arrangement=\(fix.arrangementChanged) modes=\(fix.modes.keys.sorted())")
+        } else {
+            print("== Display setup matches the saved one")
+        }
         var drift = 0, closed = 0
         let byKey = Dictionary(displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         for record in layout.windows.values {

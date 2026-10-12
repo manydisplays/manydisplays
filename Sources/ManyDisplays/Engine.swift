@@ -480,16 +480,19 @@ final class Engine {
 
         if allowArrangement, Settings.fixArrangement, !arrangementFixedThisCycle,
            sawHotplug || sawSleepOrLock || reason == "manual",
-           let origins = Displays.arrangementFix(saved: layout.displays, current: displays) {
+           let fix = Displays.configurationFix(saved: layout.displays, current: displays) {
             arrangementFixedThisCycle = true
-            Log.info("macOS changed the display arrangement; restoring the saved one")
-            if Displays.applyArrangement(origins, current: displays) {
+            var what: [String] = []
+            if fix.arrangementChanged { what.append("arrangement") }
+            if !fix.modes.isEmpty { what.append("resolution/refresh rate of \(fix.modes.count) display(s)") }
+            Log.info("macOS changed the display \(what.joined(separator: " and ")); restoring the saved setup")
+            if Displays.apply(fix, current: displays) {
                 // The reconfiguration callbacks will freeze and settle again, then restore windows.
-                setMode(.frozen, "fixing display arrangement")
+                setMode(.frozen, "restoring display setup")
                 scheduleSettle(after: 3.0, reason: reason)
                 return
             }
-            Log.info("Could not change the display arrangement")
+            Log.info("Could not change the display configuration")
         }
 
         guard AX.isTrusted else {
