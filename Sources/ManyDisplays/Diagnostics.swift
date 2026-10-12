@@ -7,7 +7,13 @@ enum Diagnostics {
         let displays = Displays.current()
         print("== Displays (\(displays.count))  profile: \(Displays.profileID(displays))")
         for d in displays {
-            print("  \(d.key)  \(d.name)  id=\(d.id) main=\(d.isMain) builtin=\(d.isBuiltin) bounds=\(d.bounds) px=\(d.pixelWidth)x\(d.pixelHeight)@\(Int(d.refreshRate))Hz mode=\(d.modeID) serial=\(d.serial) uuid=\(d.uuid)")
+            print("  \(d.key)  \(d.name)  id=\(d.id) main=\(d.isMain) builtin=\(d.isBuiltin) bounds=\(d.bounds) px=\(d.pixelWidth)x\(d.pixelHeight)@\(Int(d.refreshRate))Hz mode=\(d.modeID) rot=\(d.rotation) serial=\(d.serial) uuid=\(d.uuid)")
+        }
+
+        let ports = DisplayPorts.portIDs(for: Displays.all().map(\.id))
+        let hdr = DisplayPanel.hdrStates()
+        for d in Displays.all() {
+            print("  \(d.key): port=\(ports[d.id].map(String.init) ?? "-") hdr=\(hdr[d.id].map { "\($0)" } ?? "n/a") mirrorOf=\(d.mirrorOf)")
         }
 
         let topology = Spaces.topology()

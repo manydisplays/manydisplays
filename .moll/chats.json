@@ -1,9 +1,15 @@
 {
+  "bars" : {
+    "bottom" : true,
+    "hex" : "#0e8a8a",
+    "opacity" : 0.35,
+    "top" : true
+  },
   "tabs" : [
     {
       "browser" : "builtIn",
-      "browserURL" : "https:\/\/www.reddit.com\/r\/mac\/comments\/11evhk0\/how_to_stop_my_extended_displays_from_swapping\/",
-      "cost" : 7.032583800000001,
+      "browserURL" : "https:\/\/www.reddit.com\/r\/mac\/comments\/1pbe917\/decades_dealing_with_this_my_mac_cant_remember_my\/",
+      "cost" : 15.6817434,
       "effort" : "medium",
       "id" : "15E6EA43-5F9C-41EF-8972-01354BCDC2A9",
       "permissionMode" : "bypassPermissions",

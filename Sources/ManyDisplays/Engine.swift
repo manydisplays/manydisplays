@@ -48,8 +48,14 @@ final class Engine {
     private var asleep = false
     private var sawHotplug = false
     private var sawSleepOrLock = false
-    private var arrangementFixedThisCycle = false
+    /// Display fixes already attempted in this wake/reconnect cycle (each runs at most once).
+    private var displayFixesDone: Set<String> = []
+    /// HDR state is read through MonitorPanel (~25 ms), so it is cached until displays change.
+    private var hdrCache: [CGDirectDisplayID: Bool] = [:]
+    private var hdrCacheStale = true
     private var firstEvaluation = true
+    /// Launched behind the lock screen (e.g. updated while away): restore normally on unlock.
+    private var startedLocked = false
     private var activeProfileID: String?
     /// Windows whose restore failed (e.g. the app refused); their saved position is protected
     /// from being overwritten until they are restored or the protection expires.
@@ -83,6 +89,13 @@ final class Engine {
     func start() {
         queue.async {
             Log.info("ManyDisplays started (boot \(Boot.session), AX=\(AX.isTrusted))")
+            if let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+               (session["CGSSessionScreenIsLocked"] as? Bool) == true {
+                Log.info("Started while the screen is locked; will restore on unlock")
+                self.screenLocked = true
+                self.sawSleepOrLock = true
+                self.startedLocked = true
+            }
             self.publish()
             self.scheduleSettle(after: 1.0, reason: "launch")
         }
@@ -95,6 +108,7 @@ final class Engine {
     func displayReconfigEnded(hotplug: Bool) {
         queue.async {
             if hotplug { self.sawHotplug = true }
+            self.hdrCacheStale = true
             if self.mode != .frozen { self.freeze("displays reconfigured") }
             self.scheduleSettle(after: 2.5, reason: "displays stable")
         }
@@ -299,6 +313,7 @@ final class Engine {
         }
         let displays = Displays.current()
         guard Displays.hasExternal(displays) else {
+            if fixBuiltinDisplayAfterUndock(displays) { return }
             if mode != .inactive { Log.info("No external displays: idle") }
             activeProfileID = nil
             pending.removeAll()
@@ -312,10 +327,24 @@ final class Engine {
         let isFirst = firstEvaluation
         firstEvaluation = false
         if profile != activeProfileID {
-            Log.info("Display setup: \(Displays.profileName(displays.map(DisplayInfo.init)))")
+            Log.info("Display setup: \(Displays.profileName(displays.map { DisplayInfo($0) }))")
             pending.removeAll()
         }
         activeProfileID = profile
+
+        if Settings.fixArrangement, sawHotplug || sawSleepOrLock, !displayFixesDone.contains("mirror") {
+            displayFixesDone.insert("mirror")
+            let mirrored = Displays.all().filter { $0.mirrorOf != kCGNullDirectDisplay }
+            let extended = Set(displays.map(\.key)).union(mirrored.map(\.key))
+            if !mirrored.isEmpty, store.layouts.values.contains(where: { Set($0.displays.map(\.key)) == extended }) {
+                Log.info("macOS turned on mirroring for \(mirrored.count) display(s) that were extended; turning it off")
+                if Displays.unmirror(mirrored.map(\.id)) {
+                    setMode(.frozen, "turning off mirroring")
+                    scheduleSettle(after: 3.0, reason: reason)
+                    return
+                }
+            }
+        }
 
         guard let layout = store.layout(profile) ?? (isFirst ? nil : closestLayout(to: displays)) else {
             Log.info("New display setup, tracking started")
@@ -330,13 +359,19 @@ final class Engine {
             // App (re)started: windows still have their ids unless apps or the Mac restarted.
             // Re-link windows that changed id and only restore those.
             let rebound = rebindDeadRecords(profile: profile)
-            if rebound.isEmpty {
-                beginTracking()
-            } else {
-                Log.info("Re-linked \(rebound.count) windows after restart")
-                startRestore(layout: store.layout(profile) ?? layout, displays: displays, reason: "launch",
-                             only: rebound, allowArrangement: false)
+            if !rebound.isEmpty { Log.info("Re-linked \(rebound.count) windows after restart") }
+            if !startedLocked {
+                if rebound.isEmpty {
+                    beginTracking()
+                } else {
+                    startRestore(layout: store.layout(profile) ?? layout, displays: displays, reason: "launch",
+                                 only: rebound, allowArrangement: false)
+                }
+                return
             }
+            startedLocked = false
+            startRestore(layout: store.layout(profile) ?? layout, displays: displays, reason: reason,
+                         allowArrangement: true)
             return
         }
 
@@ -357,10 +392,83 @@ final class Engine {
             .0
     }
 
+    /// Puts the display setup back the way it was saved, one step per settle: rotation, then
+    /// resolution/refresh rate/arrangement, then HDR. Returns true if a change was applied.
+    private func applyNextDisplayFix(layout: Layout, displays: [LiveDisplay], reason: String) -> Bool {
+        func applied(_ what: String) -> Bool {
+            setMode(.frozen, what)
+            scheduleSettle(after: 3.0, reason: reason)
+            return true
+        }
+
+        if displayFixesDone.insert("rotation").inserted {
+            let fix = Displays.rotationFix(saved: layout.displays, current: displays)
+            if !fix.isEmpty {
+                Log.info("macOS reset the rotation of \(fix.count) display(s); restoring it")
+                DispatchQueue.main.async {
+                    for (id, degrees) in fix where !DisplayPanel.setRotation(degrees, for: id) {
+                        Log.info("Could not rotate display \(id)")
+                    }
+                }
+                return applied("restoring display rotation")
+            }
+        }
+
+        if displayFixesDone.insert("config").inserted,
+           let fix = Displays.configurationFix(saved: layout.displays, current: displays) {
+            var what: [String] = []
+            if fix.arrangementChanged { what.append("arrangement") }
+            if !fix.modes.isEmpty { what.append("resolution/refresh rate of \(fix.modes.count) display(s)") }
+            Log.info("macOS changed the display \(what.joined(separator: " and ")); restoring the saved setup")
+            if Displays.apply(fix, current: displays) { return applied("restoring display setup") }
+            Log.info("Could not change the display configuration")
+        }
+
+        if displayFixesDone.insert("hdr").inserted {
+            let fix = Displays.hdrFix(saved: layout.displays, current: displays)
+            if !fix.isEmpty {
+                Log.info("macOS changed HDR on \(fix.count) display(s); restoring it")
+                DispatchQueue.main.async {
+                    for (id, on) in fix where !DisplayPanel.setHDR(on, for: id) {
+                        Log.info("Could not change HDR on display \(id)")
+                    }
+                }
+                return applied("restoring HDR")
+            }
+        }
+        return false
+    }
+
+    /// Some Macs come back from a dock with the built-in panel at the wrong resolution
+    /// (huge menu bar). Remember the built-in mode while undocked and put it back after
+    /// unplugging. Only reacts right after a disconnect; never touches windows.
+    private func fixBuiltinDisplayAfterUndock(_ displays: [LiveDisplay]) -> Bool {
+        guard Settings.fixArrangement, displays.count == 1, let builtin = displays.first, builtin.isBuiltin else {
+            return false
+        }
+        let profile = Displays.profileID(displays)
+        if !sawHotplug {
+            // Calm state (wake, unlock, or a deliberate change): this is the mode to keep.
+            var layout = store.layout(profile) ?? Layout(profileID: profile)
+            layout.displays = displays.map { DisplayInfo($0) }
+            layout.windows = [:]
+            if store.put(layout) { scheduleFlush() }
+            return false
+        }
+        guard displayFixesDone.insert("builtin").inserted, let saved = store.layout(profile),
+              let fix = Displays.configurationFix(saved: saved.displays, current: displays), !fix.modes.isEmpty
+        else { return false }
+        Log.info("Built-in display came back at a different resolution after undocking; restoring it")
+        guard Displays.apply(fix, current: displays) else { return false }
+        setMode(.frozen, "restoring built-in display")
+        scheduleSettle(after: 2.5, reason: "displays stable")
+        return true
+    }
+
     private func resetCycleFlags() {
         sawHotplug = false
         sawSleepOrLock = false
-        arrangementFixedThisCycle = false
+        displayFixesDone.removeAll()
     }
 
     private func beginTracking() {
@@ -421,7 +529,11 @@ final class Engine {
         pending = pending.filter { $0.value > now && capture.existing.contains($0.key) }
 
         var layout = store.layout(profile) ?? Layout(profileID: profile)
-        layout.displays = displays.map(DisplayInfo.init)
+        if hdrCacheStale {
+            hdrCache = DisplayPanel.hdrStates()
+            hdrCacheStale = false
+        }
+        layout.displays = displays.map { DisplayInfo($0, hdr: hdrCache[$0.id]) }
         layout.bootSession = Boot.session
         // Windows that no longer exist were closed: forget them so they are never "restored".
         var windows = layout.windows.filter { capture.existing.contains(CGWindowID($0.key) ?? 0) }
@@ -478,21 +590,11 @@ final class Engine {
         unreachable.removeAll()
         setMode(.restoring, reason)
 
-        if allowArrangement, Settings.fixArrangement, !arrangementFixedThisCycle,
-           sawHotplug || sawSleepOrLock || reason == "manual",
-           let fix = Displays.configurationFix(saved: layout.displays, current: displays) {
-            arrangementFixedThisCycle = true
-            var what: [String] = []
-            if fix.arrangementChanged { what.append("arrangement") }
-            if !fix.modes.isEmpty { what.append("resolution/refresh rate of \(fix.modes.count) display(s)") }
-            Log.info("macOS changed the display \(what.joined(separator: " and ")); restoring the saved setup")
-            if Displays.apply(fix, current: displays) {
-                // The reconfiguration callbacks will freeze and settle again, then restore windows.
-                setMode(.frozen, "restoring display setup")
-                scheduleSettle(after: 3.0, reason: reason)
-                return
-            }
-            Log.info("Could not change the display configuration")
+        if allowArrangement, Settings.fixArrangement, sawHotplug || sawSleepOrLock || reason == "manual",
+           applyNextDisplayFix(layout: layout, displays: displays, reason: reason) {
+            // The reconfiguration callbacks freeze and settle again; the next evaluation runs the
+            // following fix step, and finally restores the windows.
+            return
         }
 
         guard AX.isTrusted else {
@@ -705,6 +807,7 @@ final class Engine {
         status.pending = pending.count
         if let id = activeProfileID { status.windowCount = store.layout(id)?.windows.count ?? 0 }
         status.profiles = store.layouts.values
+            .filter { $0.displays.contains { !$0.isBuiltin } }
             .map {
                 ProfileSummary(id: $0.profileID, name: Displays.profileName($0.displays),
                                windowCount: $0.windows.count, updatedAt: $0.updatedAt,

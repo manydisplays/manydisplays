@@ -30,9 +30,12 @@ unlocks, or when you reconnect your external displays.
 | You closed windows while working on the MacBook alone | They are never reopened: only windows that still exist are moved; closed ones are forgotten |
 | New windows opened in the meantime | Left alone, and tracked from then on |
 | A display setup never seen before (e.g. same monitors with the lid open) | Restores from the closest saved setup, then tracks the new one separately |
+| After wake/reconnect macOS changed the **resolution or refresh rate**, the **rotation** (portrait monitor back to landscape), **HDR**, or turned on **mirroring** | Puts each one back, one step at a time, before restoring windows. Only after sleep, lock or reconnect; deliberate changes are kept |
+| Undocking leaves the **MacBook's own screen** at a wrong resolution (huge menu bar) | Restores the built-in display's last known good mode. Windows are not touched while on the MacBook alone |
 
 One layout is kept **per combination of displays** (identified by vendor, model and serial;
-duplicated serials fall back to the display UUID and then to position). If the resolution
+identical monitors that share a serial fall back to the display UUID, then to the **physical port**
+they are plugged into (Apple Silicon), and only then to position). If the resolution
 changes, positions are scaled proportionally.
 
 While windows are being restored the screens get a subtle blur with a small spinner (can be
