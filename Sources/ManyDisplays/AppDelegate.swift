@@ -26,11 +26,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 guard AX.isTrusted else { return }
                 timer.invalidate()
                 self?.trustTimer = nil
+                UserInput.startMonitoring()
                 Engine.shared.accessibilityGranted()
             }
             trustTimer?.tolerance = 1
         }
 
+        UserInput.startMonitoring()
         Engine.shared.start()
     }
 

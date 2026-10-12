@@ -51,9 +51,47 @@ enum Settings {
         set { defaults.set(newValue, forKey: "blurWhileRestoring") }
     }
 
+    /// Smoothed duration of recent restores, used for the overlay countdown.
+    static var restoreDuration: TimeInterval {
+        get { defaults.object(forKey: "restoreDuration") as? Double ?? 3.5 }
+        set { defaults.set(newValue, forKey: "restoreDuration") }
+    }
+
     static var paused: Bool {
         get { defaults.bool(forKey: "paused") }
         set { defaults.set(newValue, forKey: "paused") }
+    }
+}
+
+/// When the user last clicked, dragged or used a keyboard shortcut. Window changes that follow
+/// within a moment are the user's; changes without recent input come from macOS or the app.
+enum UserInput {
+    private static let lock = NSLock()
+    private static var last = Date.distantPast
+    private static var monitor: Any?
+
+    /// Needs Accessibility permission; safe to call again once it is granted.
+    static func startMonitoring() {
+        guard monitor == nil, AXIsProcessTrusted() else { return }
+        monitor = NSEvent.addGlobalMonitorForEvents(matching: [
+            .leftMouseDown, .leftMouseDragged, .rightMouseDown, .otherMouseDown, .keyDown,
+        ]) { event in
+            if event.type == .keyDown,
+               event.modifierFlags.intersection([.command, .control, .option]).isEmpty { return }
+            mark()
+        }
+    }
+
+    static func mark() {
+        lock.lock()
+        last = Date()
+        lock.unlock()
+    }
+
+    static func happened(within seconds: TimeInterval) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return Date().timeIntervalSince(last) < seconds
     }
 }
 

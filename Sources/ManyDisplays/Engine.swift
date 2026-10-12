@@ -66,6 +66,13 @@ final class Engine {
     /// Until this date, such drift is undone instead of being saved as the new position.
     private var guardUntil = Date.distantPast
     private var guardAttempts: [CGWindowID: Int] = [:]
+    private var guardStart = Date.distantPast
+    /// Windows the user moved/resized themselves (mouse or shortcut right before the change).
+    private var userMovedAt: [CGWindowID: Date] = [:]
+    /// Window-server windows that are not real AX windows (e.g. Chrome's 89 px helper strips).
+    private var nonAXWindows: Set<CGWindowID> = []
+    private var lastRestoreAt = Date.distantPast
+    private var overlayShownAt: Date?
     private var titles: [CGWindowID: String] = [:]
     /// AX elements found during the current restore cycle, and windows a deep scan could not
     /// reach (apps that hide off-space windows); those wait until their desktop is visited.
@@ -113,6 +120,7 @@ final class Engine {
 
     func displayReconfigEnded(hotplug: Bool) {
         queue.async {
+            Log.info("Display reconfigured\(hotplug ? " (connected/disconnected)" : "")")
             if hotplug { self.sawHotplug = true }
             self.hdrCacheStale = true
             if self.mode != .frozen { self.freeze("displays reconfigured") }
@@ -161,6 +169,16 @@ final class Engine {
                 self.screenLocked = false
                 self.scheduleSettle(after: 1.5, reason: "unlocked")
             }
+        }
+    }
+
+    func windowMoved(_ element: AXUIElement, byUser: Bool) {
+        queue.async {
+            if byUser, let id = AX.windowID(element) {
+                if self.userMovedAt.count > 500 { self.userMovedAt.removeAll() }
+                self.userMovedAt[id] = Date()
+            }
+            self.scheduleSnapshot(after: 1.5)
         }
     }
 
@@ -276,6 +294,7 @@ final class Engine {
         settleWork?.cancel()
         if mode != .frozen { Log.info("On hold: \(reason)") }
         setMode(.frozen, reason)
+        overlayShownAt = nil
         DispatchQueue.main.async { RestoreOverlay.shared.hide() }
 
         // Safety net in case a wake/unlock notification never arrives.
@@ -566,11 +585,23 @@ final class Engine {
                 fullscreen: window.spaces.contains { topology.types[$0] == 4 }
             )
         }
+        if now.timeIntervalSince(lastRestoreAt) < 600 {
+            // Diagnostics: who moves windows after a restore, and when.
+            var changes: [String] = []
+            for (key, new) in windows {
+                guard let old = layout.windows[key], !old.relFrame.isClose(to: new.relFrame) || old.displayKey != new.displayKey else { continue }
+                let id = new.windowID
+                let who = (userMovedAt[id] ?? .distantPast) > now.addingTimeInterval(-30) ? "user" : "not user"
+                changes.append("\(new.appName) \(id) \(rect(old.relFrame)) -> \(rect(new.relFrame)) [\(who)]")
+            }
+            if !changes.isEmpty {
+                Log.info("Saved window changes \(Int(now.timeIntervalSince(lastRestoreAt)))s after restore: " + changes.prefix(8).joined(separator: "; "))
+            }
+        }
         layout.windows = windows
 
         if store.put(layout) { scheduleFlush() }
         if !drifted.isEmpty {
-            Log.info("Moved again by macOS or the app right after restoring; putting back: \(describe(drifted, in: layout))")
             let result = restorePass(layout: layout, only: drifted, deep: false, overlay: false)
             if result.moved == 0 { for id in drifted { guardAttempts[id] = 3 } }
         }
@@ -582,21 +613,26 @@ final class Engine {
     /// without the user dragging them are put back (up to 3 times each) instead of saved.
     private func guardedDrift(layout: Layout, capture: WindowCapture, displays: [LiveDisplay]) -> Set<CGWindowID> {
         guard Date() < guardUntil else { return [] }
-        if NSEvent.pressedMouseButtons != 0 {
-            guardUntil = .distantPast // the user is moving things: their changes win
-            return []
+        if NSEvent.pressedMouseButtons != 0 || UserInput.happened(within: 1.0) {
+            return [] // the user is busy moving things right now; check again on the next snapshot
         }
         let byKey = Dictionary(displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let savedDisplays = Dictionary(layout.displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         var drifted: Set<CGWindowID> = []
-        for window in capture.trackable where pending[window.id] == nil && guardAttempts[window.id, default: 0] < 3 {
+        var details: [String] = []
+        for window in capture.trackable where pending[window.id] == nil && !nonAXWindows.contains(window.id)
+            && guardAttempts[window.id, default: 0] < 3 && (userMovedAt[window.id] ?? .distantPast) < guardStart {
             guard let record = layout.windows[String(window.id)], !record.fullscreen,
                   let display = byKey[record.displayKey] else { continue }
             let target = targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
             if !window.frame.matches(target) {
                 drifted.insert(window.id)
                 guardAttempts[window.id, default: 0] += 1
+                details.append("\(record.appName) \(window.id) \(rect(window.frame)) -> \(rect(target))")
             }
+        }
+        if !details.isEmpty {
+            Log.info("Moved by macOS/app \(Int(Date().timeIntervalSince(guardStart)))s after restoring (no user input); putting back: " + details.joined(separator: "; "))
         }
         return drifted
     }
@@ -647,8 +683,12 @@ final class Engine {
             guard cycle == myCycle else { return }
             let current = store.layout(layout.profileID) ?? layout
             var result = restorePass(layout: current, only: only, deep: true, overlay: index == 0)
+            let movedNow = result.moved
             result.moved += moved
-            if index + 1 < delays.count {
+            // Once a pass finds nothing left to move, things have settled: finish early. The
+            // guard period catches anything macOS moves later.
+            let settled = index >= 1 && movedNow == 0
+            if index + 1 < delays.count, !settled {
                 queue.asyncAfter(deadline: .now() + (delays[index + 1] - delays[index])) {
                     runPass(index + 1, moved: result.moved)
                 }
@@ -672,10 +712,20 @@ final class Engine {
         var summary = "\(formatter.string(from: Date())): \(result.moved) moved of \(result.considered)"
         if !pending.isEmpty { summary += ", \(pending.count) pending" }
         lastRestore = summary
-        DispatchQueue.main.async { RestoreOverlay.shared.hide() }
+        if let shownAt = overlayShownAt {
+            let took = Date().timeIntervalSince(shownAt)
+            Settings.restoreDuration = Settings.restoreDuration * 0.6 + took * 0.4
+            overlayShownAt = nil
+            summary += String(format: " in %.1fs", took)
+        }
+        DispatchQueue.main.async { RestoreOverlay.shared.finish() }
         Log.info("Restore (\(reason)) \(summary); on another Space: \(result.spaceMismatches)")
         if !stillOff.isEmpty { Log.info("Not in place yet (will retry on their desktop): \(describe(stillOff, in: layout))") }
-        guardUntil = Date().addingTimeInterval(20)
+        // macOS (and some apps) can keep moving windows for a while after the displays come
+        // back; for 3 minutes, changes nobody asked for are undone instead of saved.
+        lastRestoreAt = Date()
+        guardStart = Date()
+        guardUntil = Date().addingTimeInterval(180)
         guardAttempts.removeAll()
         beginTracking()
     }
@@ -724,6 +774,7 @@ final class Engine {
         var result: Set<CGWindowID> = []
         for record in layout.windows.values {
             if let only, !only.contains(record.windowID) { continue }
+            if nonAXWindows.contains(record.windowID) { continue }
             guard let live = capture.byID[record.windowID], !record.fullscreen,
                   !live.spaces.contains(where: { topology.types[$0] == 4 }),
                   let display = byKey[record.displayKey] else { continue }
@@ -731,6 +782,10 @@ final class Engine {
             if !live.frame.matches(target) { result.insert(record.windowID) }
         }
         return result
+    }
+
+    private func rect(_ r: CGRect) -> String {
+        "(\(Int(r.minX)),\(Int(r.minY)) \(Int(r.width))x\(Int(r.height)))"
     }
 
     private func describe(_ ids: Set<CGWindowID>, in layout: Layout) -> String {
@@ -748,6 +803,7 @@ final class Engine {
         var jobs: [pid_t: [(CGWindowID, CGRect)]] = [:]
         for record in layout.windows.values {
             if let only, !only.contains(record.windowID) { continue }
+            if nonAXWindows.contains(record.windowID) { continue }
             // Closed windows are never reopened; minimized/hidden ones are left alone.
             guard let live = capture.byID[record.windowID], !record.fullscreen,
                   !live.spaces.contains(where: { topology.types[$0] == 4 }),
@@ -768,7 +824,9 @@ final class Engine {
 
         // Only veil the screens when there is actually something to put back.
         if overlay, !jobs.isEmpty, Settings.blurWhileRestoring {
-            DispatchQueue.main.async { RestoreOverlay.shared.show() }
+            overlayShownAt = Date()
+            let estimate = Settings.restoreDuration
+            DispatchQueue.main.async { RestoreOverlay.shared.show(estimate: estimate) }
         }
 
         // Phase 1 moves everything reachable cheaply (current desktop + cached elements);
@@ -796,7 +854,11 @@ final class Engine {
                         // Visible but not an AX window (e.g. Chrome helper strips): nothing to do.
                         // Off-space and hidden from AX: retry when its desktop becomes active.
                         let onActive = capture.byID[id].map { !Set($0.spaces).isDisjoint(with: topology.active) } ?? true
-                        if !onActive { result.failed.insert(id) }
+                        if onActive {
+                            nonAXWindows.insert(id)
+                        } else {
+                            result.failed.insert(id)
+                        }
                         continue
                     }
                     if AX.isMinimized(element) { continue }

@@ -98,6 +98,8 @@ final class AXHub {
             Engine.shared.windowEvent()
         case kAXTitleChangedNotification, kAXFocusedWindowChangedNotification:
             Engine.shared.windowTitleMaybeChanged(element)
+        case kAXWindowMovedNotification, kAXWindowResizedNotification:
+            Engine.shared.windowMoved(element, byUser: UserInput.happened(within: 1.5))
         default:
             Engine.shared.windowEvent()
         }
@@ -148,7 +150,12 @@ final class SystemEvents {
 
         observe(distributed, RemoteCommand.save) { Engine.shared.saveNow() }
         observe(distributed, RemoteCommand.restore) { Engine.shared.restoreNow() }
-        observe(distributed, RemoteCommand.previewOverlay) { RestoreOverlay.shared.show() }
+        observe(distributed, RemoteCommand.previewOverlay) {
+            // Countdown with the learned estimate, then the "Done" state.
+            let estimate = Settings.restoreDuration
+            RestoreOverlay.shared.show(estimate: estimate)
+            DispatchQueue.main.asyncAfter(deadline: .now() + estimate + 0.3) { RestoreOverlay.shared.finish() }
+        }
 
         observe(NotificationCenter.default, NSApplication.didChangeScreenParametersNotification) { DisplayNames.refresh() }
     }
