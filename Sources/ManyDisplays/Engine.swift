@@ -316,10 +316,13 @@ final class Engine {
         }
         activeProfileID = profile
 
-        guard let layout = store.layout(profile) else {
+        guard let layout = store.layout(profile) ?? (isFirst ? nil : closestLayout(to: displays)) else {
             Log.info("Combinación nueva, empiezo a guardar")
             beginTracking()
             return
+        }
+        if layout.profileID != profile {
+            Log.info("Combinación nueva; restauro desde la más parecida: \(Displays.profileName(layout.displays))")
         }
 
         if isFirst {
@@ -337,6 +340,20 @@ final class Engine {
         }
 
         startRestore(layout: layout, displays: displays, reason: reason, allowArrangement: true)
+    }
+
+    /// For a combination never seen before (e.g. the same monitors but with the lid open),
+    /// borrow the layout that shares the most external monitors; windows go back to the
+    /// monitors that are present, the rest stay where macOS put them.
+    private func closestLayout(to displays: [LiveDisplay]) -> Layout? {
+        let external = Set(displays.filter { !$0.isBuiltin }.map(\.key))
+        return store.layouts.values
+            .map { layout -> (Layout, Int) in
+                (layout, Set(layout.displays.filter { !$0.isBuiltin }.map(\.key)).intersection(external).count)
+            }
+            .filter { $0.1 > 0 }
+            .max { $0.1 != $1.1 ? $0.1 < $1.1 : $0.0.updatedAt < $1.0.updatedAt }?
+            .0
     }
 
     private func resetCycleFlags() {

@@ -1,12 +1,12 @@
 {
   "tabs" : [
     {
-      "autoTitle" : true,
+      "cost" : 3.7904102999999996,
       "effort" : "medium",
       "id" : "15E6EA43-5F9C-41EF-8972-01354BCDC2A9",
       "permissionMode" : "bypassPermissions",
       "sessionId" : "90ee4f7b-73d9-4880-9300-329a889c590e",
-      "title" : "desarrolla en esta carpeta una a"
+      "title" : "App Swift para restaurar ventanas en macOS"
     }
   ],
   "version" : 1
