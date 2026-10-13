@@ -118,6 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         }
 
         menu.addItem(.separator())
+        menu.addItem(item("About \(AppIdentity.name)…", #selector(openWebsite)))
         menu.addItem(item("Quit \(AppIdentity.name)", #selector(quit)))
     }
 
