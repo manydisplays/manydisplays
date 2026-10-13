@@ -99,7 +99,7 @@ enum WindowList {
                   ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0.01,
                   let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
                   let frame = CGRect(dictionaryRepresentation: boundsDict),
-                  frame.width >= 80, frame.height >= 50
+                  frame.width >= Tuning.minimumWindowSide, frame.height >= Tuning.minimumWindowSide
             else { continue }
 
             let owner = info[kCGWindowOwnerName as String] as? String ?? ""

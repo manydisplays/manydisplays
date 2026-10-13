@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- Chrome's small helper strips are no longer saved, so they never show up as "windows will be restored when you visit their Space".
 - "Restore Windows Now" and "Save Current Layout" work while tracking is paused; the pause only stops the automatic saving and restoring.
 
 ### Added

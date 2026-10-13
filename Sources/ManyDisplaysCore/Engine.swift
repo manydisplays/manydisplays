@@ -997,6 +997,10 @@ final class Engine {
             guard let live = capture.byID[record.windowID], !record.fullscreen,
                   !live.spaces.contains(where: { topology.types[$0] == 4 }),
                   let display = byKey[record.displayKey] else { continue }
+            // Helper strips (Chrome's suggestion popups…) are never moved, so they are never "off target".
+            if live.frame.height < Tuning.minimumWindowSide || live.frame.width < Tuning.minimumWindowSide {
+                continue
+            }
             let target = LayoutMath.targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
             if !isAt(target, live) {
                 result.insert(record.windowID)

@@ -50,7 +50,8 @@ enum Tuning {
     static let offSpaceWatchAfterVisible: TimeInterval = 20
     /// After a restore, saved changes are logged (to see who moves windows) for this long.
     static let postRestoreDiagnostics: TimeInterval = 600
-    /// Strips narrower/shorter than this (Chrome tab-drag helpers...) are not real windows.
+    /// Windows narrower or shorter than this (Chrome's tab-drag and suggestion strips…) are neither
+    /// saved nor restored.
     static let minimumWindowSide: CGFloat = 100
 
     // MARK: Accessibility
