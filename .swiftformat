@@ -3,5 +3,5 @@
 --maxwidth 130
 --wraparguments before-first
 --wrapparameters before-first
---disable wrapMultilineStatementBraces, redundantSelf, andOperator, hoistPatternLet, blankLinesAtStartOfScope, unusedArguments
+--disable wrapMultilineStatementBraces, redundantSelf, andOperator, hoistPatternLet, blankLinesAtStartOfScope, unusedArguments, docComments
 --exclude .build, build
