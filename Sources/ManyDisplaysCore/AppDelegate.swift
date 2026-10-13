@@ -79,15 +79,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         menu.removeAllItems()
         let status = Engine.shared.status
 
+        // What matters right now: state, anything the user must act on, and the trial.
         menu.addItem(disabled(describe(status)))
-        if let save = status.lastSave {
-            let relative = RelativeDateTimeFormatter()
-            relative.unitsStyle = .short
-            menu.addItem(disabled("Last saved: \(relative.localizedString(for: save, relativeTo: Date()))"))
-        }
-        if let restore = status.lastRestore {
-            menu.addItem(disabled("Last restore: \(restore)"))
-        }
         if status.pending > 0 {
             menu.addItem(disabled("\(status.pending) windows will be restored when you visit their Space"))
         }
@@ -95,10 +88,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
             menu.addItem(disabled("⚠︎ \(status.spaceMismatches) windows are on a different Space"))
         }
         if !AX.isTrusted {
-            menu.addItem(.separator())
             menu.addItem(item("Grant Accessibility Permission…", #selector(openAccessibility)))
         }
-        addLicenseItems(to: menu)
+        addTrialItems(to: menu)
 
         menu.addItem(.separator())
         let restore = item("Restore Windows Now", #selector(restoreNow))
@@ -107,26 +99,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         let save = item("Save Positions Now", #selector(saveNow))
         applyShortcut(Settings.saveHotKey, to: save)
         menu.addItem(save)
-
-        menu.addItem(.separator())
         let pause = item("Pause Tracking", #selector(togglePause))
         pause.state = Settings.paused ? .on : .off
         menu.addItem(pause)
-        let arrangement = item("Restore Display Setup After Wake", #selector(toggleArrangement))
-        arrangement.state = Settings.fixArrangement ? .on : .off
-        menu.addItem(arrangement)
-        let blur = item("Blur Screens While Restoring", #selector(toggleBlur))
-        blur.state = Settings.blurWhileRestoring ? .on : .off
-        menu.addItem(blur)
-        let login = item("Open at Login", #selector(toggleLogin))
-        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        menu.addItem(login)
 
         menu.addItem(.separator())
-        let profilesItem = NSMenuItem(title: "Saved Display Setups", action: nil, keyEquivalent: "")
-        let profilesMenu = NSMenu()
+        menu.addItem(submenu("Saved Display Setups", savedSetupsMenu(status)))
+        menu.addItem(submenu("Settings", settingsMenu()))
+        menu.addItem(submenu("Help", helpMenu(status)))
+        if let updater {
+            let check = NSMenuItem(
+                title: "Check for Updates…",
+                action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+                keyEquivalent: ""
+            )
+            check.target = updater
+            menu.addItem(check)
+        }
+
+        menu.addItem(.separator())
+        menu.addItem(item("Quit \(AppIdentity.name)", #selector(quit)))
+    }
+
+    /// Trial and licence prompts stay at the top until the app is licensed.
+    private func addTrialItems(to menu: NSMenu) {
+        switch Licensing.shared.state {
+        case .free, .licensed: return
+        case let .trial(days):
+            menu.addItem(.separator())
+            menu.addItem(disabled("Trial: \(days) day\(days == 1 ? "" : "s") left"))
+            menu.addItem(item("Buy \(AppIdentity.name)…", #selector(buy)))
+            menu.addItem(item("Enter Licence…", #selector(enterLicense)))
+        case .trialExpired:
+            menu.addItem(.separator())
+            menu.addItem(disabled("⚠︎ Trial over: windows are not restored"))
+            menu.addItem(item("Buy \(AppIdentity.name)…", #selector(buy)))
+            menu.addItem(item("Enter Licence…", #selector(enterLicense)))
+        case .updatesExpired:
+            menu.addItem(.separator())
+            menu.addItem(disabled("⚠︎ This version is not covered by your licence"))
+            menu.addItem(item("Renew Licence…", #selector(buy)))
+            menu.addItem(item("Enter Licence…", #selector(enterLicense)))
+        }
+    }
+
+    private func savedSetupsMenu(_ status: Engine.Status) -> NSMenu {
+        let menu = NSMenu()
         if status.profiles.isEmpty {
-            profilesMenu.addItem(disabled("None yet"))
+            menu.addItem(disabled("None yet"))
         }
         let formatter = DateFormatter()
         formatter.dateStyle = .short
@@ -140,49 +160,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
             forget.representedObject = profile.id
             sub.addItem(forget)
             entry.submenu = sub
-            profilesMenu.addItem(entry)
+            menu.addItem(entry)
         }
-        profilesItem.submenu = profilesMenu
-        menu.addItem(profilesItem)
-        menu.addItem(item("Open Data Folder", #selector(openData)))
-        menu.addItem(item("Show Log", #selector(openLog)))
-
-        menu.addItem(.separator())
-        menu.addItem(disabled("\(AppIdentity.name) \(AppIdentity.version)"))
-        if let updater {
-            let check = NSMenuItem(
-                title: "Check for Updates…",
-                action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
-                keyEquivalent: ""
-            )
-            check.target = updater
-            menu.addItem(check)
-        }
-        menu.addItem(item("Quit \(AppIdentity.name)", #selector(quit)))
+        return menu
     }
 
-    private func addLicenseItems(to menu: NSMenu) {
-        let state = Licensing.shared.state
-        guard state != .free else { return }
-        menu.addItem(.separator())
-        switch state {
+    private func settingsMenu() -> NSMenu {
+        let menu = NSMenu()
+        let arrangement = item("Restore Display Setup After Wake", #selector(toggleArrangement))
+        arrangement.state = Settings.fixArrangement ? .on : .off
+        menu.addItem(arrangement)
+        let blur = item("Blur Screens While Restoring", #selector(toggleBlur))
+        blur.state = Settings.blurWhileRestoring ? .on : .off
+        menu.addItem(blur)
+        let login = item("Open at Login", #selector(toggleLogin))
+        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        menu.addItem(login)
+        return menu
+    }
+
+    private func helpMenu(_ status: Engine.Status) -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(disabled("\(AppIdentity.name) \(AppIdentity.version)"))
+        switch Licensing.shared.state {
         case .free: break
-        case let .trial(days):
-            menu.addItem(disabled("Trial: \(days) day\(days == 1 ? "" : "s") left"))
-            menu.addItem(item("Buy \(AppIdentity.name)…", #selector(buy)))
-            menu.addItem(item("Enter Licence…", #selector(enterLicense)))
-        case .trialExpired:
-            menu.addItem(disabled("⚠︎ Trial over: windows are not restored"))
-            menu.addItem(item("Buy \(AppIdentity.name)…", #selector(buy)))
-            menu.addItem(item("Enter Licence…", #selector(enterLicense)))
         case let .licensed(key):
             menu.addItem(disabled("Licensed to \(key.email)"))
             menu.addItem(item("Licence…", #selector(enterLicense)))
-        case .updatesExpired:
-            menu.addItem(disabled("⚠︎ This version is not covered by your licence"))
-            menu.addItem(item("Renew Licence…", #selector(buy)))
-            menu.addItem(item("Licence…", #selector(enterLicense)))
+        default:
+            menu.addItem(item("Enter Licence…", #selector(enterLicense)))
         }
+        menu.addItem(.separator())
+        if let save = status.lastSave {
+            let relative = RelativeDateTimeFormatter()
+            relative.unitsStyle = .short
+            menu.addItem(disabled("Last saved: \(relative.localizedString(for: save, relativeTo: Date()))"))
+        }
+        if let restore = status.lastRestore {
+            menu.addItem(disabled("Last restore: \(restore)"))
+        }
+        menu.addItem(item("Support Website…", #selector(openSupport)))
+        menu.addItem(item("Show Log", #selector(openLog)))
+        menu.addItem(item("Open Data Folder", #selector(openData)))
+        return menu
+    }
+
+    private func submenu(_ title: String, _ menu: NSMenu) -> NSMenuItem {
+        let entry = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        entry.submenu = menu
+        return entry
+    }
+
+    @objc private func openSupport() {
+        NSWorkspace.shared.open(URL(string: "https://manydisplays.com/support")!)
     }
 
     @objc private func buy() {
