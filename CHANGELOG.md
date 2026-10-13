@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-14
+
 ### Added
 - Settings → Reset Settings to Defaults… (keeps the licence, the saved layouts and the login item).
 
