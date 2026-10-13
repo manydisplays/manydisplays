@@ -29,6 +29,17 @@ enum AX {
         (attribute(element, kAXTitleAttribute) as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 
+    /// The frame the app reports. Unlike CGWindowList bounds, it is not affected by Mission
+    /// Control or Space-switch animations, which temporarily transform windows on screen.
+    static func frame(_ element: AXUIElement) -> CGRect? {
+        guard let p = attribute(element, kAXPositionAttribute), let s = attribute(element, kAXSizeAttribute),
+              CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID() else { return nil }
+        var point = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(p as! AXValue, .cgPoint, &point), AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
+        return CGRect(origin: point, size: size)
+    }
+
     static func isMinimized(_ element: AXUIElement) -> Bool {
         (attribute(element, kAXMinimizedAttribute) as? Bool) ?? false
     }

@@ -81,6 +81,7 @@ final class Engine {
     private var lastRestoreAt = Date.distantPast
     private var overlayShownAt: Date?
     private var restoreStartedAt = Date()
+    private var lastReconfigAt = Date.distantPast
     /// Windows a deep scan could not reach in an earlier restore (apps that hide off-desktop
     /// windows). Not scanned again; they are placed when their desktop is shown.
     private var knownUnreachable: Set<CGWindowID> = []
@@ -124,12 +125,16 @@ final class Engine {
     }
 
     func displayReconfigBegan() {
-        queue.async { self.freeze("displays reconfiguring") }
+        queue.async {
+            self.lastReconfigAt = Date()
+            self.freeze("displays reconfiguring")
+        }
     }
 
     func displayReconfigEnded(hotplug: Bool) {
         queue.async {
             Log.info("Display reconfigured\(hotplug ? " (connected/disconnected)" : "")")
+            self.lastReconfigAt = Date()
             if hotplug { self.sawHotplug = true }
             self.hdrCacheStale = true
             if self.mode != .frozen { self.freeze("displays reconfigured") }
@@ -176,7 +181,17 @@ final class Engine {
             } else {
                 guard self.screenLocked else { return }
                 self.screenLocked = false
-                self.scheduleSettle(after: 1.5, reason: "unlocked")
+                // Displays usually reconnect before the password is typed; if they have been
+                // stable for a while there is no need to wait long.
+                let calm = Date().timeIntervalSince(self.lastReconfigAt) > 2.5
+                let delay: TimeInterval = calm ? 0.3 : 1.5
+                // Veil the screens right away if windows are visibly out of place.
+                if Settings.blurWhileRestoring, !Settings.paused, self.overlayShownAt == nil, self.visibleWindowsLookMoved() {
+                    self.overlayShownAt = Date()
+                    let estimate = Settings.overlayDuration + delay
+                    DispatchQueue.main.async { RestoreOverlay.shared.show(estimate: estimate) }
+                }
+                self.scheduleSettle(after: delay, reason: "unlocked")
             }
         }
     }
@@ -348,6 +363,7 @@ final class Engine {
         let displays = Displays.current()
         guard Displays.hasExternal(displays) else {
             if fixBuiltinDisplayAfterUndock(displays) { return }
+            dropOverlay()
             if mode != .inactive { Log.info("No external displays: idle") }
             activeProfileID = nil
             pending.removeAll()
@@ -507,7 +523,14 @@ final class Engine {
         displayFixesDone.removeAll()
     }
 
+    private func dropOverlay() {
+        guard overlayShownAt != nil else { return }
+        overlayShownAt = nil
+        DispatchQueue.main.async { RestoreOverlay.shared.hide() }
+    }
+
     private func beginTracking() {
+        dropOverlay()
         cycle += 1
         watchdogWork?.cancel()
         resetCycleFlags()
@@ -566,6 +589,8 @@ final class Engine {
 
         var layout = store.layout(profile) ?? Layout(profileID: profile)
         let drifted = guardedDrift(layout: layout, capture: capture, displays: displays, topology: topology)
+        let byKey = Dictionary(displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        let savedDisplays = Dictionary(layout.displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         if hdrCacheStale {
             hdrCache = DisplayPanel.hdrStates()
             hdrCacheStale = false
@@ -577,8 +602,24 @@ final class Engine {
 
         for window in capture.trackable {
             if pending[window.id] != nil || drifted.contains(window.id) { continue }
-            guard let display = Displays.best(for: window.frame, in: displays) else { continue }
             let key = String(window.id)
+            let onActiveDesktop = !Set(window.spaces).isDisjoint(with: topology.active)
+            var frame = window.frame
+            if let old = layout.windows[key], let oldDisplay = byKey[old.displayKey] {
+                let oldFrame = targetFrame(old, saved: savedDisplays[old.displayKey], current: oldDisplay)
+                if !frame.isClose(to: oldFrame) {
+                    // Windows on desktops you are not looking at cannot have been moved by you;
+                    // what the window server reports for them is an animation in progress.
+                    guard onActiveDesktop else { continue }
+                    if let real = axFrame(of: window) {
+                        guard real.matches(frame) else { continue } // Mission Control / swipe in progress
+                        frame = real
+                    }
+                }
+            } else if onActiveDesktop, let real = axFrame(of: window) {
+                frame = real
+            }
+            guard let display = Displays.best(for: frame, in: displays) else { continue }
             let app = apps.info(window.pid)
             let spaceID = window.spaces.count == 1 ? window.spaces[0] : nil
             windows[key] = WindowRecord(
@@ -588,7 +629,7 @@ final class Engine {
                 appName: app.name ?? window.ownerName,
                 title: window.title ?? titles[window.id] ?? windows[key]?.title,
                 displayKey: display.key,
-                relFrame: window.frame.offsetBy(dx: -display.bounds.minX, dy: -display.bounds.minY),
+                relFrame: frame.offsetBy(dx: -display.bounds.minX, dy: -display.bounds.minY),
                 spaceID: spaceID,
                 spaceIndex: spaceID.flatMap(topology.index(of:)),
                 onAllSpaces: window.spaces.count > 1,
@@ -650,8 +691,10 @@ final class Engine {
             guard guardAttempts[window.id, default: 0] < 3, (userMovedAt[window.id] ?? .distantPast) < guardFrom,
                   let record = layout.windows[String(window.id)], !record.fullscreen,
                   let display = byKey[record.displayKey] else { continue }
+            // Only judge what is on screen, and confirm with the app (animations look like drift).
+            guard !Set(window.spaces).isDisjoint(with: topology.active) else { continue }
             let target = targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
-            if !window.frame.matches(target) {
+            if !isAt(target, window) {
                 drifted.insert(window.id)
                 guardAttempts[window.id, default: 0] += 1
                 details.append("\(record.appName) \(window.id) \(rect(window.frame)) -> \(rect(target))")
@@ -809,9 +852,44 @@ final class Engine {
                   !live.spaces.contains(where: { topology.types[$0] == 4 }),
                   let display = byKey[record.displayKey] else { continue }
             let target = targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
-            if !live.frame.matches(target) { result.insert(record.windowID) }
+            if !isAt(target, live) { result.insert(record.windowID) }
         }
         return result
+    }
+
+    /// Quick check (one window list read) used at unlock to decide whether to veil the screens.
+    private func visibleWindowsLookMoved() -> Bool {
+        let displays = Displays.current()
+        guard Displays.hasExternal(displays), let layout = store.layout(Displays.profileID(displays)) else { return false }
+        let byKey = Dictionary(displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        let savedDisplays = Dictionary(layout.displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        let topology = Spaces.topology()
+        let capture = WindowList.capture(topology: topology, ownPID: ownPID)
+        for record in layout.windows.values where !record.fullscreen && !nonAXWindows.contains(record.windowID) {
+            guard let live = capture.byID[record.windowID], live.frame.height >= 100,
+                  !Set(live.spaces).isDisjoint(with: topology.active),
+                  let display = byKey[record.displayKey] else { continue }
+            if !live.frame.matches(targetFrame(record, saved: savedDisplays[record.displayKey], current: display)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The app's own frame for a window, if it can be reached through Accessibility.
+    private func axFrame(of window: LiveWindow) -> CGRect? {
+        if let element = axElements[window.id], let frame = AX.frame(element) { return frame }
+        guard let element = AX.elements(pid: window.pid, wanted: [window.id], deep: false)[window.id] else { return nil }
+        if axElements.count > 600 { axElements.removeAll() }
+        axElements[window.id] = element
+        return AX.frame(element)
+    }
+
+    /// Whether a window really is at `target`. The window server's bounds can be mid-animation
+    /// (Mission Control, swiping between desktops), so a mismatch is confirmed with the app.
+    private func isAt(_ target: CGRect, _ window: LiveWindow) -> Bool {
+        if window.frame.matches(target) { return true }
+        return axFrame(of: window)?.matches(target) ?? false
     }
 
     private func rect(_ r: CGRect) -> String {
@@ -855,7 +933,7 @@ final class Engine {
         }
 
         // Only veil the screens when there is actually something to put back.
-        if overlay, !jobs.isEmpty, Settings.blurWhileRestoring {
+        if overlay, !jobs.isEmpty, Settings.blurWhileRestoring, overlayShownAt == nil {
             overlayShownAt = Date()
             let estimate = Settings.overlayDuration
             DispatchQueue.main.async { RestoreOverlay.shared.show(estimate: estimate) }
@@ -873,6 +951,7 @@ final class Engine {
                     continue
                 }
                 if AX.isMinimized(element) { continue }
+                if let current = AX.frame(element), current.matches(target) { continue } // only looked off (animation)
                 if AX.setFrame(element, app: app, to: target) {
                     result.moved += 1
                     knownUnreachable.remove(id)
