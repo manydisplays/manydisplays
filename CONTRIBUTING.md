@@ -2,6 +2,10 @@
 
 Thanks for helping. Many Displays is small on purpose; please keep it that way.
 
+The code is under the Functional Source License (FSL-1.1-MIT, see LICENSE.md): by contributing you
+agree that your contribution is licensed the same way, and that it becomes MIT with the rest of the
+code two years after release.
+
 ## Setup
 
 ```bash

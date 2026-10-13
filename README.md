@@ -107,5 +107,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.
 
 ## License
 
-[MIT](LICENSE). The source is free; the notarized, auto-updating build sold at manydisplays.com is
+[Functional Source License, Version 1.1, MIT Future License](LICENSE.md) (FSL-1.1-MIT). You can
+read, build, modify and fork the code, use it yourself and contribute back; you cannot use it to
+offer a product or service that competes with Many Displays. Two years after each version is
+published it becomes MIT-licensed. The notarized, auto-updating build sold at manydisplays.com is
 how the project is funded.
+
+The name "Many Displays" and the app icon are trademarks and are not covered by the licence: a
+fork must use its own name and icon.

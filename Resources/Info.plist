@@ -31,7 +31,7 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2026 Martín Acuña Lledó. MIT License.</string>
+	<string>Copyright © 2026 Martín Acuña Lledó. Functional Source License 1.1 (MIT future).</string>
 	<key>NSSupportsAutomaticTermination</key>
 	<false/>
 	<key>NSSupportsSuddenTermination</key>

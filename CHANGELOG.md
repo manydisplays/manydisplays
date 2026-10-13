@@ -17,6 +17,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 - The menu bar icon while tracking is the app's own mark (two displays) instead of a generic split rectangle.
+- Licence is the Functional Source License (FSL-1.1-MIT): forks and personal builds are welcome, competing commercial use is not; each version becomes MIT two years after release.
 - Bundle identifier is now `com.manydisplays.ManyDisplays` (macOS will ask for Accessibility once more).
 - System windows (Control Center, Dock, Spotlight…) are excluded by bundle identifier, so it works in every language.
 - Private macOS symbols are resolved at runtime; a missing one no longer prevents the app from launching.

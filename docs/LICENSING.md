@@ -1,6 +1,6 @@
 # Licensing
 
-Many Displays is MIT-licensed and anyone can build it from source. The build sold at
+Many Displays is published under the Functional Source License (FSL-1.1-MIT) and anyone can build it from source for their own use. The build sold at
 manydisplays.com asks for a licence; this is how that works and why it is compatible with open source.
 
 ## What the user sees
@@ -29,12 +29,13 @@ manydisplays.com asks for a licence; this is how that works and why it is compat
   public key, and keep accepting the old one for a release or two if existing customers must keep
   their keys (add it to a list of accepted keys).
 
-## Why this is fine for an open-source app
+## Why this is fine for a source-available app
 
-Anyone can build the app without the licence check, or remove it. That is inherent in the MIT
-licence and is the model of Maccy, Rectangle or Sublime Text: what is sold is the notarized,
-auto-updating build and the support behind it, not the source. The licence check is there to
-remind honest users, not to stop determined ones. Keys cannot be forged without the private key.
+Anyone can build the app for themselves without the licence check, or remove it; the FSL only
+forbids using the code for a competing product or service. What is sold is the notarized,
+auto-updating build and the support behind it, not the source, as with Maccy, Rectangle or
+Sublime Text. The licence check is there to remind honest users, not to stop determined ones.
+Keys cannot be forged without the private key.
 
 ## Shop
 
