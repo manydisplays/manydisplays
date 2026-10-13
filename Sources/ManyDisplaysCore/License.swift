@@ -1,24 +1,68 @@
+import CryptoKit
 import Foundation
 
-/// A licence key bought on Lemon Squeezy and activated on this Mac. Lemon Squeezy issues the
-/// key with the order, emails it to the buyer, and its public licence API validates it; the app
-/// keeps a copy of the answer so it works offline afterwards.
-struct LicenseKey: Codable, Equatable {
-    let key: String
-    let email: String?
-    /// End of the update window (the key's `expires_at`); nil means forever.
-    let updatesUntil: Date?
-    /// "active", "expired", "disabled"…
-    let status: String
-    /// Lemon Squeezy activation instance on this Mac (needed to deactivate).
-    let instanceID: String?
-    let validatedAt: Date
+/// A purchased licence: a short signed text the user pastes into the app.
+///
+/// Format: `MD1.<payload>.<signature>`, where payload is base64url of
+/// `email|issued|updatesUntil` (dates as YYYY-MM-DD) and signature is base64url of the Ed25519
+/// signature of the payload bytes. The app only holds the public key; keys are issued by the
+/// shop's backend right after a Stripe checkout (see docs/LICENSING.md), so reading this code
+/// does not let anyone forge one. Verification is offline: the app never calls home.
+struct LicenseKey: Equatable {
+    let email: String
+    let issuedAt: Date
+    let updatesUntil: Date
+    let text: String
+
+    enum Error: Swift.Error, Equatable {
+        case malformed
+        case badSignature
+    }
+
+    static let prefix = "MD1"
+
+    /// Parses and verifies a key against `publicKey` (raw 32 bytes).
+    static func verify(_ text: String, publicKey: Data) throws -> LicenseKey {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0] == prefix,
+              let payload = Data(base64URL: String(parts[1])),
+              let signature = Data(base64URL: String(parts[2])),
+              let key = try? Curve25519.Signing.PublicKey(rawRepresentation: publicKey)
+        else { throw Error.malformed }
+        guard key.isValidSignature(signature, for: payload) else { throw Error.badSignature }
+        guard let fields = String(data: payload, encoding: .utf8)?.split(separator: "|", omittingEmptySubsequences: false),
+              fields.count == 3, let issued = Licensing.day(String(fields[1])), let until = Licensing.day(String(fields[2]))
+        else { throw Error.malformed }
+        return LicenseKey(email: String(fields[0]), issuedAt: issued, updatesUntil: until, text: trimmed)
+    }
+
+    /// Issues a key (the tests and scripts/license-tool.swift; the shop does the same in JS).
+    static func issue(email: String, issuedAt: Date, updatesUntil: Date, privateKey: Data) throws -> String {
+        let signing = try Curve25519.Signing.PrivateKey(rawRepresentation: privateKey)
+        let payload = Data("\(email)|\(Licensing.string(issuedAt))|\(Licensing.string(updatesUntil))".utf8)
+        let signature = try signing.signature(for: payload)
+        return "\(prefix).\(payload.base64URL).\(signature.base64URL)"
+    }
 
     /// Whether a build made on `buildDate` is covered by this licence.
     func covers(buildDate: Date) -> Bool {
-        guard status != "disabled" else { return false }
-        guard let updatesUntil else { return true }
-        return buildDate <= updatesUntil
+        buildDate <= updatesUntil
+    }
+}
+
+extension Data {
+    init?(base64URL: String) {
+        var s = base64URL.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while s.count % 4 != 0 {
+            s += "="
+        }
+        self.init(base64Encoded: s)
+    }
+
+    var base64URL: String {
+        base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 }
 
@@ -29,7 +73,7 @@ enum LicenseState: Equatable {
     case trial(daysLeft: Int)
     case trialExpired
     case licensed(LicenseKey)
-    /// Licensed, but this build is newer than the licence's update window (or the key was disabled).
+    /// Licensed, but this build is newer than the licence's update window.
     case updatesExpired(LicenseKey)
 
     var allowsRestoring: Bool {
@@ -57,127 +101,6 @@ enum LicenseState: Equatable {
     }
 }
 
-/// Lemon Squeezy licence API (https://docs.lemonsqueezy.com/api/license-api). These endpoints
-/// need no API key: they only know the licence key itself.
-enum LemonSqueezy {
-    static let baseURL = URL(string: "https://api.lemonsqueezy.com/v1/licenses/")!
-    /// Store and product the key must belong to (0 = not checked). Filled in once the shop exists.
-    static let storeID = 0
-    static let productID = 0
-
-    enum Error: Swift.Error, Equatable {
-        case rejected(String)
-        case wrongProduct
-        case malformedResponse
-    }
-
-    struct Response: Decodable {
-        struct Key: Decodable {
-            let status: String
-            let key: String
-            let expires_at: String?
-        }
-
-        struct Instance: Decodable { let id: String }
-        struct Meta: Decodable {
-            let store_id: Int?
-            let product_id: Int?
-            let customer_email: String?
-        }
-
-        let activated: Bool?
-        let valid: Bool?
-        let error: String?
-        let license_key: Key?
-        let instance: Instance?
-        let meta: Meta?
-    }
-
-    static func activate(_ key: String, instanceName: String, session: URLSession = .shared) async throws -> LicenseKey {
-        try await parse(
-            call("activate", ["license_key": key, "instance_name": instanceName], session: session),
-            requestedKey: key
-        )
-    }
-
-    static func validate(_ license: LicenseKey, session: URLSession = .shared) async throws -> LicenseKey {
-        var form = ["license_key": license.key]
-        if let id = license.instanceID {
-            form["instance_id"] = id
-        }
-        var fresh = try await parse(call("validate", form, session: session), requestedKey: license.key)
-        fresh = LicenseKey(
-            key: fresh.key,
-            email: fresh.email ?? license.email,
-            updatesUntil: fresh.updatesUntil,
-            status: fresh.status,
-            instanceID: license.instanceID,
-            validatedAt: fresh.validatedAt
-        )
-        return fresh
-    }
-
-    static func deactivate(_ license: LicenseKey, session: URLSession = .shared) async throws {
-        guard let id = license.instanceID else { return }
-        _ = try await call("deactivate", ["license_key": license.key, "instance_id": id], session: session)
-    }
-
-    private static func call(_ endpoint: String, _ form: [String: String], session: URLSession) async throws -> Response {
-        var request = URLRequest(url: baseURL.appendingPathComponent(endpoint))
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 15
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
-        request.httpBody = form.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")" }
-            .joined(separator: "&").data(using: .utf8)
-        let (data, _) = try await session.data(for: request)
-        guard let response = try? JSONDecoder().decode(Response.self, from: data) else { throw Error.malformedResponse }
-        return response
-    }
-
-    /// Turns an API answer into a licence. A key that exists but is expired or disabled is still
-    /// returned (with its status), so an old build that it covers keeps working.
-    static func parse(_ response: Response, requestedKey: String) throws -> LicenseKey {
-        guard let key = response.license_key else {
-            throw Error.rejected(response.error ?? "The licence key was not recognised.")
-        }
-        if let meta = response.meta {
-            if storeID != 0, let store = meta.store_id, store != storeID {
-                throw Error.wrongProduct
-            }
-            if productID != 0, let product = meta.product_id, product != productID {
-                throw Error.wrongProduct
-            }
-        }
-        if let error = response.error, response.activated != true, response.valid != true,
-           key.status != "expired" {
-            throw Error.rejected(error)
-        }
-        return LicenseKey(
-            key: key.key.isEmpty ? requestedKey : key.key,
-            email: response.meta?.customer_email,
-            updatesUntil: key.expires_at.flatMap(Self.date),
-            status: key.status,
-            instanceID: response.instance?.id,
-            validatedAt: Date()
-        )
-    }
-
-    private static let iso: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-
-    private static let isoPlain = ISO8601DateFormatter()
-
-    static func date(_ s: String) -> Date? {
-        iso.date(from: s) ?? isoPlain.date(from: s)
-    }
-}
-
 /// Licence storage and the app's view of it. Only the official release build asks for a
 /// licence (`MDRequiresLicense` in Info.plist, set by scripts/build-app.sh for DMG builds);
 /// anything built from source runs free.
@@ -186,13 +109,12 @@ final class Licensing {
 
     static let trialDays = 14
     static let buyURL = URL(string: "https://manydisplays.com/buy")!
-    /// A stored licence is checked again with the shop at most this often (quietly, when online).
-    static let revalidateInterval: TimeInterval = 7 * 24 * 3600
+    /// Ed25519 public key of the shop (raw, base64). The private half lives only in the shop.
+    static let publicKeyBase64 = "fatp+ja23VTv6hu2oBNuY8lwSZYopvm2tW5QtpCAFEc="
 
     private let defaults = UserDefaults.standard
     private let lock = NSLock()
     private var cachedKey: LicenseKey??
-    private var revalidating = false
 
     var onChange: (() -> Void)?
 
@@ -211,56 +133,32 @@ final class Licensing {
         if let cached = cachedKey {
             return cached
         }
-        let stored = defaults.data(forKey: "license").flatMap { try? JSONDecoder().decode(LicenseKey.self, from: $0) }
-        cachedKey = .some(stored)
-        return stored
+        let parsed = defaults.string(forKey: "licenseKey").flatMap { try? LicenseKey.verify($0, publicKey: Self.publicKey) }
+        cachedKey = .some(parsed)
+        return parsed
     }
 
     var state: LicenseState {
         LicenseState.compute(required: required, key: key, trialStartedAt: trialStartedAt, buildDate: buildDate)
     }
 
-    /// Activates a key with the shop and stores the answer.
-    func activate(_ text: String) async throws {
-        let key = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let license = try await LemonSqueezy.activate(key, instanceName: Host.current().localizedName ?? "Mac")
-        store(license)
-        Log.info("Licence activated (\(license.status)), updates until \(license.updatesUntil.map(Self.string) ?? "forever")")
-    }
-
-    func deactivate() async {
-        if let key {
-            try? await LemonSqueezy.deactivate(key)
-        }
-        store(nil)
-        Log.info("Licence removed")
-    }
-
-    /// Re-checks the stored key with the shop now and then (refunded keys get disabled).
-    func revalidateIfDue() {
-        guard required, let key, !revalidating,
-              Date().timeIntervalSince(key.validatedAt) > Self.revalidateInterval else { return }
-        revalidating = true
-        Task {
-            defer { revalidating = false }
-            if let fresh = try? await LemonSqueezy.validate(key) {
-                store(fresh)
-                if fresh.status != key.status {
-                    Log.info("Licence status changed to \(fresh.status)")
-                }
-            }
-        }
-    }
-
-    private func store(_ license: LicenseKey?) {
+    /// Verifies and stores a key. Throws `LicenseKey.Error` when it is not valid.
+    func activate(_ text: String) throws {
+        let parsed = try LicenseKey.verify(text, publicKey: Self.publicKey)
         lock.lock()
-        if let license, let data = try? JSONEncoder().encode(license) {
-            defaults.set(data, forKey: "license")
-        } else {
-            defaults.removeObject(forKey: "license")
-        }
-        cachedKey = .some(license)
+        defaults.set(parsed.text, forKey: "licenseKey")
+        cachedKey = .some(parsed)
         lock.unlock()
+        Log.info("Licence activated for \(parsed.email), updates until \(Self.string(parsed.updatesUntil))")
+        DispatchQueue.main.async { [weak self] in self?.onChange?() }
+    }
+
+    func deactivate() {
+        lock.lock()
+        defaults.removeObject(forKey: "licenseKey")
+        cachedKey = .some(nil)
+        lock.unlock()
+        Log.info("Licence removed")
         DispatchQueue.main.async { [weak self] in self?.onChange?() }
     }
 
@@ -280,6 +178,10 @@ final class Licensing {
             try? String(earliest.timeIntervalSince1970).write(to: fileURL, atomically: true, encoding: .utf8)
         }
         return earliest
+    }
+
+    static var publicKey: Data {
+        Data(base64Encoded: publicKeyBase64) ?? Data()
     }
 
     private static let dayFormatter: DateFormatter = {

@@ -33,9 +33,12 @@ final class LicenseWindow: NSObject, NSWindowDelegate {
 
         let title = NSTextField(labelWithString: "Enter your licence key")
         title.font = .boldSystemFont(ofSize: 15)
-        let hint = NSTextField(wrappingLabelWithString: "The key was shown after your purchase and sent to your email.")
+        let hint =
+            NSTextField(
+                wrappingLabelWithString: "The key was shown after your purchase and sent to your email. It starts with MD1."
+            )
         hint.textColor = .secondaryLabelColor
-        field.placeholderString = "XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX"
+        field.placeholderString = "MD1.…"
         field.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         field.lineBreakMode = .byTruncatingMiddle
         field.cell?.usesSingleLineMode = true
@@ -80,40 +83,24 @@ final class LicenseWindow: NSObject, NSWindowDelegate {
         case let .trial(days): status.stringValue = "Trial: \(days) day\(days == 1 ? "" : "s") left."
         case .trialExpired: status.stringValue = "The trial is over. Windows are still tracked, but not restored, until a licence is entered."
         case let .licensed(key):
-            let who = key.email.map { "Licensed to \($0)." } ?? "Licensed."
-            status.stringValue = who + (key.updatesUntil.map { " Updates until \(Licensing.string($0))." } ?? "")
+            status.stringValue = "Licensed to \(key.email). Updates until \(Licensing.string(key.updatesUntil))."
         case let .updatesExpired(key):
-            if key.status == "disabled" {
-                status.stringValue = "This licence key was disabled (refunded?). Contact support if that is a mistake."
-            } else {
-                status.stringValue = "Your licence covers updates until \(key.updatesUntil.map(Licensing.string) ?? "?"); this version is newer. Renew it, or install the last covered version."
-            }
+            status.stringValue = "Your licence covers updates until \(Licensing.string(key.updatesUntil)); this version is newer. Renew it, or install the last covered version."
         }
     }
 
     @objc private func activateClicked() {
-        let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        activate.isEnabled = false
-        status.textColor = .secondaryLabelColor
-        status.stringValue = "Checking the key…"
-        Task { @MainActor in
-            defer { activate.isEnabled = true }
-            do {
-                try await Licensing.shared.activate(text)
-                field.stringValue = ""
-                refresh(message: nil)
-                status.textColor = .systemGreen
-            } catch LemonSqueezy.Error.rejected(let reason) {
-                status.stringValue = reason
-                status.textColor = .systemRed
-            } catch LemonSqueezy.Error.wrongProduct {
-                status.stringValue = "That key belongs to a different product."
-                status.textColor = .systemRed
-            } catch {
-                status.stringValue = "Could not reach the licence server. Check your connection and try again."
-                status.textColor = .systemRed
-            }
+        do {
+            try Licensing.shared.activate(field.stringValue)
+            field.stringValue = ""
+            refresh(message: nil)
+            status.textColor = .systemGreen
+        } catch LicenseKey.Error.badSignature {
+            status.stringValue = "That key is not valid for this app. Check that it was copied completely."
+            status.textColor = .systemRed
+        } catch {
+            status.stringValue = "That does not look like a licence key (it starts with MD1.)."
+            status.textColor = .systemRed
         }
     }
 

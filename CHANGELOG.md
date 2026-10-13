@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
-- Licensing for the distributed build: 14-day trial, Lemon Squeezy licence keys, one year of updates per licence (see docs/LICENSING.md). Builds from source stay free.
+- Licensing for the distributed build: 14-day trial, offline-verified Ed25519 licence keys issued after a Stripe checkout, one year of updates per licence (see docs/LICENSING.md). Builds from source stay free.
 - Unit tests for the pure logic (frame scaling, closest layout, window re-linking, display fixes, shortcut parsing).
 - Configurable global shortcuts through `defaults write` (`restoreHotKey`, `saveHotKey`).
 - Sparkle updates ("Check for Updates…"), enabled in release builds that carry a feed URL and public key.
