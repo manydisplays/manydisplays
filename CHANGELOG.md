@@ -5,6 +5,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-10-14
+
+### Changed
+- Licence window shows an "Activated" state with Remove Licence and Done once a key is in; the status line shows an expired trial in orange instead of a green "tracking"; "remembering" replaces "tracking" in the interface.
+
 ### Fixed
 - ⌘V, ⌘C and ⌘A work in the licence window (menu bar apps need an Edit menu for that).
 
