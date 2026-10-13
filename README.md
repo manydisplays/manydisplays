@@ -70,9 +70,9 @@ The script signs with your "Developer ID Application" certificate if you have on
 
 ## Shortcuts and commands
 
-- `⌃⌥⌘R` restore now · `⌃⌥⌘S` save now (normally you need neither). Change them with
-  `defaults write com.manydisplays.ManyDisplays restoreHotKey -string "ctrl+shift+r"`
-  (modifiers: `ctrl`, `alt`, `cmd`, `shift`; keys: a–z, 0–9, f1–f12; an empty string disables one).
+- `⌃⌥⌘R` restores now (normally you never need it; saving is automatic). Change or disable the
+  shortcuts in the menu under Settings → Keyboard Shortcuts…, or with
+  `defaults write com.manydisplays.ManyDisplays restoreHotKey -string "ctrl+shift+r"`.
 - From Terminal, Shortcuts or Raycast: `/Applications/ManyDisplays.app/Contents/MacOS/ManyDisplays --restore` (or `--save`)
 - Preview the blur overlay without moving anything: `… --preview-overlay`
 - Diagnostics: `… --dump` prints displays, Spaces, windows and what a restore would move

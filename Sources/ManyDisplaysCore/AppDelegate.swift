@@ -24,12 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         Engine.shared.onStatusChange = { [weak self] in self?.updateIcon() }
         SystemEvents.shared.install()
 
-        if let spec = Settings.restoreHotKey {
-            HotKeys.shared.register(spec) { Engine.shared.restoreNow() }
-        }
-        if let spec = Settings.saveHotKey {
-            HotKeys.shared.register(spec) { Engine.shared.saveNow() }
-        }
+        HotKeys.reloadFromSettings()
 
         if !AX.isTrusted {
             AX.promptForTrust()
@@ -96,7 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         let restore = item("Restore Windows Now", #selector(restoreNow), symbol: "arrow.counterclockwise")
         applyShortcut(Settings.restoreHotKey, to: restore)
         menu.addItem(restore)
-        let save = item("Save Positions Now", #selector(saveNow), symbol: "square.and.arrow.down")
+        let save = item("Save Current Layout", #selector(saveNow), symbol: "square.and.arrow.down")
+        save.toolTip = "Positions are saved automatically; use this to make what you see now the saved layout."
         applyShortcut(Settings.saveHotKey, to: save)
         menu.addItem(save)
         let pause = item(
@@ -181,6 +177,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         let login = item("Open at Login", #selector(toggleLogin))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
+        menu.addItem(.separator())
+        menu.addItem(item("Keyboard Shortcuts…", #selector(showShortcuts), symbol: "keyboard"))
         return menu
     }
 
@@ -283,6 +281,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         item.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(paletteColors: [colour]))
         return item
+    }
+
+    @objc private func showShortcuts() {
+        ShortcutsWindow.shared.show()
     }
 
     @objc private func openWebsite() {

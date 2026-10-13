@@ -23,6 +23,10 @@ final class SupportTests: XCTestCase {
         XCTAssertNil(HotKeySpec("ctrl+"), "no key")
         XCTAssertNil(HotKeySpec("hyper+r"), "unknown modifier")
         XCTAssertNil(HotKeySpec("ctrl+enter"), "unsupported key")
+        XCTAssertEqual(HotKeySpec("ctrl+alt+cmd+r")?.display, "⌃⌥⌘R")
+        XCTAssertEqual(HotKeySpec.text(keyCode: kVK_ANSI_R, flags: [.control, .command]), "ctrl+cmd+r")
+        XCTAssertNil(HotKeySpec.text(keyCode: kVK_ANSI_R, flags: [.shift]), "shift alone is not a global shortcut")
+        XCTAssertNil(HotKeySpec.text(keyCode: kVK_Return, flags: [.command]), "unsupported key")
     }
 
     func testLayoutRoundTripsThroughJSON() throws {

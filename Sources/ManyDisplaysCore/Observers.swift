@@ -191,12 +191,14 @@ final class HotKeys {
     private var handlers: [UInt32: () -> Void] = [:]
     private var refs: [EventHotKeyRef] = []
     private var installed = false
+    private var nextID: UInt32 = 1
 
     func register(_ spec: HotKeySpec, _ handler: @escaping () -> Void) {
         if !installed {
             install()
         }
-        let id = UInt32(handlers.count + 1)
+        let id = nextID
+        nextID += 1
         handlers[id] = handler
         var ref: EventHotKeyRef?
         let hotKeyID = EventHotKeyID(signature: OSType(0x4D44_5350), id: id)
@@ -207,6 +209,15 @@ final class HotKeys {
         } else {
             Log.info("Could not register the global shortcut (already taken by another app?)")
         }
+    }
+
+    /// Drops every registered shortcut (used before re-registering after the user changes them).
+    func unregisterAll() {
+        for ref in refs {
+            UnregisterEventHotKey(ref)
+        }
+        refs.removeAll()
+        handlers.removeAll()
     }
 
     private func install() {

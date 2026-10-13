@@ -87,17 +87,26 @@ enum Settings {
         set { defaults.set(newValue, forKey: "paused") }
     }
 
-    /// Global shortcuts, as text ("ctrl+alt+cmd+r"). Set to an empty string to disable one.
+    /// Global shortcuts, as text ("ctrl+alt+cmd+r"); empty means disabled. Saving has no default
+    /// shortcut: the layout is saved automatically, and a stray press would overwrite it.
     static var restoreHotKey: HotKeySpec? {
         hotKey("restoreHotKey", default: "ctrl+alt+cmd+r")
     }
 
     static var saveHotKey: HotKeySpec? {
-        hotKey("saveHotKey", default: "ctrl+alt+cmd+s")
+        hotKey("saveHotKey", default: "")
+    }
+
+    static func setHotKey(_ key: String, text: String?) {
+        if let text {
+            defaults.set(text, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     private static func hotKey(_ key: String, default fallback: String) -> HotKeySpec? {
-        guard let text = defaults.string(forKey: key) else { return HotKeySpec(fallback) }
+        guard let text = defaults.string(forKey: key) else { return fallback.isEmpty ? nil : HotKeySpec(fallback) }
         if text.isEmpty {
             return nil
         }
