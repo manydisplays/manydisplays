@@ -61,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         switch status.mode {
         case .starting: "Starting…"
         case .inactive: "Idle: no external displays"
-        case .tracking: "Tracking \(status.windowCount) windows"
+        case .tracking: "Remembering \(status.windowCount) windows"
         case .frozen: "On hold: \(status.detail)"
         case .restoring: "Restoring windows…"
         case .paused: "Paused"
@@ -96,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         applyShortcut(Settings.saveHotKey, to: save)
         menu.addItem(save)
         let pause = item(
-            Settings.paused ? "Resume Tracking" : "Pause Tracking",
+            Settings.paused ? "Resume \(AppIdentity.name)" : "Pause \(AppIdentity.name)",
             #selector(togglePause),
             symbol: Settings.paused ? "play.fill" : "pause.fill"
         )
@@ -133,12 +133,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
             menu.addItem(item("Enter Licence…", #selector(enterLicense), symbol: "key"))
         case .trialExpired:
             menu.addItem(.separator())
-            menu.addItem(disabled("⚠︎ Trial over: windows are not restored"))
             menu.addItem(item("Buy \(AppIdentity.name)…", #selector(buy), symbol: "cart"))
             menu.addItem(item("Enter Licence…", #selector(enterLicense), symbol: "key"))
         case .updatesExpired:
             menu.addItem(.separator())
-            menu.addItem(disabled("⚠︎ This version is not covered by your licence"))
             menu.addItem(item("Renew Licence…", #selector(buy), symbol: "cart"))
             menu.addItem(item("Enter Licence…", #selector(enterLicense), symbol: "key"))
         }
@@ -276,13 +274,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
 
     /// The status line: a coloured dot like Docker's, green while tracking.
     private func statusLine(_ status: Engine.Status) -> NSMenuItem {
-        let item = disabled(describe(status))
-        let colour: NSColor = switch status.mode {
+        var text = describe(status)
+        var colour: NSColor = switch status.mode {
         case .tracking: .systemGreen
         case .restoring: .systemOrange
         case .frozen, .starting: .systemYellow
         case .inactive, .paused: .systemGray
         }
+        switch Licensing.shared.state {
+        case .trialExpired:
+            text = "Trial over: \(status.windowCount) windows remembered, not restored"
+            colour = .systemOrange
+        case .updatesExpired:
+            text = "Licence does not cover this version: windows not restored"
+            colour = .systemOrange
+        default: break
+        }
+        let item = disabled(text)
         item.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(paletteColors: [colour]))
         return item
@@ -291,7 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
     @objc private func resetSettings() {
         let alert = NSAlert()
         alert.messageText = "Reset settings to defaults?"
-        alert.informativeText = "Automatic restore, display fixes and the blur go back on, tracking resumes, and the shortcuts return to ⌃⌥⌘R. Your licence, saved layouts and the login item are kept."
+        alert.informativeText = "Automatic restore, display fixes and the blur go back on, the app resumes if it was paused, and the shortcuts return to ⌃⌥⌘R. Your licence, saved layouts and the login item are kept."
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")
         NSApp.activate(ignoringOtherApps: true)

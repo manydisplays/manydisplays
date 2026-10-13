@@ -32,8 +32,8 @@ reconnects its external displays.
 | You come back and the displays have been stable for a few seconds | Every window goes back to **its physical display**, position and size. Several quick passes, because macOS keeps nudging windows for a while |
 | macOS swapped the arrangement (left ↔ right, main display), the resolution, refresh rate, rotation, HDR, or turned on mirroring after a reconnect | Each one is put back, one step at a time, before the windows (can be turned off in the menu) |
 | MacBook alone, no external displays | **Idle**: no observers, no timers |
-| Windows you closed while away | Never reopened. New windows are left alone and tracked from then on |
-| A display setup never seen before (e.g. same monitors with the lid open) | Restored from the closest saved setup, then tracked separately |
+| Windows you closed while away | Never reopened. New windows are left alone and remembered from then on |
+| A display setup never seen before (e.g. same monitors with the lid open) | Restored from the closest saved setup, then remembered separately |
 | Undocking leaves the built-in screen at a wrong resolution | The last known good mode is restored. Windows are never touched on the MacBook alone |
 | An app or macOS moves a window back right after a restore | For three minutes, changes nobody asked for are undone instead of saved |
 

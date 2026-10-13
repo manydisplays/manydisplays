@@ -326,7 +326,7 @@ final class Engine {
     func setPaused(_ paused: Bool) {
         queue.async {
             Settings.paused = paused
-            Log.info(paused ? "Tracking paused" : "Tracking resumed")
+            Log.info(paused ? "Paused by the user" : "Resumed by the user")
             if paused {
                 self.cycle += 1
                 self.stopTracking()
@@ -486,7 +486,7 @@ final class Engine {
         }
 
         guard let layout = store.layout(profile) ?? (isFirst ? nil : closestLayout(to: displays)) else {
-            Log.info("New display setup, tracking started")
+            Log.info("New display setup, remembering windows from now on")
             beginTracking()
             return
         }

@@ -81,7 +81,7 @@ final class LicenseWindow: NSObject, NSWindowDelegate {
         switch Licensing.shared.state {
         case .free: status.stringValue = "This build does not need a licence."
         case let .trial(days): status.stringValue = "Trial: \(days) day\(days == 1 ? "" : "s") left."
-        case .trialExpired: status.stringValue = "The trial is over. Windows are still tracked, but not restored, until a licence is entered."
+        case .trialExpired: status.stringValue = "The trial is over. Window positions are still remembered, but not restored, until a licence is entered."
         case let .licensed(key):
             status.stringValue = "Licensed to \(key.email). Updates until \(Licensing.string(key.updatesUntil))."
         case let .updatesExpired(key):
