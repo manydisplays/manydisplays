@@ -272,6 +272,10 @@ final class Engine {
                 return
             }
             self.pending.removeAll()
+            // What is on screen now is the truth: nothing may be "put back" during this snapshot.
+            self.guardUntil = .distantPast
+            self.guardAttempts.removeAll()
+            self.offSpaceWatch.removeAll()
             self.activeProfileID = Displays.profileID(displays)
             if Settings.paused {
                 self.snapshot(force: true)
