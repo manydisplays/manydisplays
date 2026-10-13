@@ -5,6 +5,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Settings → "Restore Windows Automatically" (on by default). Off, the app holds after a wake, unlock or reconnect without saving the shuffled layout, until "Restore Windows Now" or its shortcut.
+
 ## [1.1.1] - 2026-10-13
 
 ### Changed

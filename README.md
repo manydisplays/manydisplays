@@ -41,6 +41,10 @@ One layout is kept **per combination of displays**. Identical monitors that shar
 apart by their system UUID, then by the **physical port** they are plugged into (Apple Silicon),
 and only then by position. If a display's resolution changes, positions are scaled proportionally.
 
+"Restore Windows Automatically" (on by default) can be turned off in the menu: the app then keeps
+the last good layout, ignores whatever macOS did after a wake or unlock, and waits for
+"Restore Windows Now" (`⌃⌥⌘R`). Handy for screen recordings and for checking what the app would do.
+
 While windows are being restored the screens get a soft blur with a countdown (can be turned off).
 It only appears when something actually needs to move. A "Close" link appears if it runs past the
 usual time, and the veil never stays longer than 10 s.

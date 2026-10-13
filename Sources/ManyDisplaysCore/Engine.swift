@@ -297,6 +297,16 @@ final class Engine {
         }
     }
 
+    func setAutoRestore(_ enabled: Bool) {
+        queue.async {
+            Settings.autoRestore = enabled
+            Log.info(enabled ? "Automatic restore on" : "Automatic restore off")
+            if enabled, self.mode == .frozen {
+                self.scheduleSettle(after: 0, reason: "automatic restore turned on")
+            }
+        }
+    }
+
     func setPaused(_ paused: Bool) {
         queue.async {
             Settings.paused = paused
@@ -470,6 +480,9 @@ final class Engine {
             }
             startedLocked = false
             restoreOnLaunch = false
+            if waitForManualRestore(reason: reason) {
+                return
+            }
             startRestore(
                 layout: store.layout(profile) ?? layout,
                 displays: displays,
@@ -479,7 +492,20 @@ final class Engine {
             return
         }
 
+        if waitForManualRestore(reason: reason) {
+            return
+        }
         startRestore(layout: layout, displays: displays, reason: reason, allowArrangement: true)
+    }
+
+    /// With "Restore Windows Automatically" off, nothing is restored or saved after a wake,
+    /// unlock or reconnect: the app holds until "Restore Windows Now" (or the shortcut), so the
+    /// saved layout is never overwritten by the shuffled one. Returns true when holding.
+    private func waitForManualRestore(reason: String) -> Bool {
+        guard !Settings.autoRestore, reason != "manual" else { return false }
+        Log.info("Automatic restore is off; waiting for Restore Windows Now (\(reason))")
+        setMode(.frozen, "automatic restore is off, use Restore Windows Now")
+        return true
     }
 
     /// For a combination never seen before (e.g. the same monitors but with the lid open),

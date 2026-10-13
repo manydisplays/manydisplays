@@ -71,6 +71,13 @@ enum Settings {
         set { defaults.set(newValue, forKey: "fixArrangement") }
     }
 
+    /// Off: after wake, unlock or a reconnect the app waits (without saving the shuffled layout)
+    /// until the user chooses "Restore Windows Now" or presses the shortcut.
+    static var autoRestore: Bool {
+        get { defaults.object(forKey: "autoRestore") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "autoRestore") }
+    }
+
     static var blurWhileRestoring: Bool {
         get { defaults.object(forKey: "blurWhileRestoring") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "blurWhileRestoring") }

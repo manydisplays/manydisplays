@@ -168,6 +168,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
 
     private func settingsMenu() -> NSMenu {
         let menu = NSMenu()
+        let auto = item("Restore Windows Automatically", #selector(toggleAutoRestore))
+        auto.state = Settings.autoRestore ? .on : .off
+        auto.toolTip = "Off: after wake, unlock or reconnecting displays, nothing moves until you choose Restore Windows Now."
+        menu.addItem(auto)
         let arrangement = item("Restore Display Setup After Wake", #selector(toggleArrangement))
         arrangement.state = Settings.fixArrangement ? .on : .off
         menu.addItem(arrangement)
@@ -307,6 +311,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
 
     @objc private func togglePause() {
         Engine.shared.setPaused(!Settings.paused)
+    }
+
+    @objc private func toggleAutoRestore() {
+        Engine.shared.setAutoRestore(!Settings.autoRestore)
     }
 
     @objc private func toggleArrangement() {
