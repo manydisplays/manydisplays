@@ -6,7 +6,6 @@
 - **Mac App Store is not possible** for the full app: Accessibility (needed to move other apps' windows) does not work in sandboxed apps (Apple DTS). Stay, Magnet, Display Maid and Moom 3 are grandfathered pre-2012 listings (verified: the installed Stay 1.5.1 has an App Store receipt and *no* sandbox entitlement). → **Sell direct** (Developer ID + notarization, Paddle/Lemon Squeezy, Sparkle), optionally Setapp.
 - **Competition**: Stay went **free** (Sep 2025) but is barely maintained. New paid indies (Putback $19, Snapset $12–30/yr, Layoutish ~$9.99) handle only the visible Space and none address identical monitors. Several tiny launches on r/MacOS in Oct 2026 show the space is heating up.
 - **Gap to own**: one app that (1) tells identical monitors apart and fixes swapped arrangement, (2) restores windows reliably after sleep/lock (saving continuously *before* macOS moves things), (3) restores windows on other Spaces without visiting them, and (4) restores resolution/refresh rate.
-- **Price suggestion**: $14.99 one-time (2–3 Macs), 14-day trial, $9.99 launch price; no subscription.
 
 ## Has Apple fixed it?
 - No display/arrangement/wake fixes in macOS 15 or 26 update notes: https://support.apple.com/en-us/120283 , https://support.apple.com/en-us/122868 (26.0 → 26.7.1).
@@ -53,14 +52,15 @@
 |---|---|---|
 | Windows piled onto one display / scattered after sleep, lock, display sleep, reconnect | **Done** | Continuous snapshots + freeze + AX restore |
 | Identical monitors swap arrangement / main display | **Done** (if serials differ; else UUID/position fallback) | `CGConfigureDisplayOrigin` |
-| Resolution / refresh rate reset after wake or reconnect | **Done** (untested against a real reset) | `CGConfigureDisplayWithDisplayMode` |
+| Resolution / refresh rate reset after wake or reconnect | **Done** | `CGConfigureDisplayWithDisplayMode` |
 | Per-location setups (home/office), reconnect with lid open | **Done** | Per display-combination layouts + closest-layout fallback |
-| Identical monitors with the *same* serial | Partial | TODO: identify by IORegistry port location (BetterDisplay #3938 does this) |
-| Rotation (portrait) reverts | TODO | Private IOKit transform (direct version only) |
-| Built-in display scaling broken after undocking | TODO | Mode restore for built-in-only setup |
+| Identical monitors with the *same* serial | **Done** | Display UUID, then the physical port from the IORegistry (`DisplayPorts`), then position |
+| Rotation (portrait) reverts | **Done** | MonitorPanel private framework (`DisplayPanel.setRotation`) |
+| Built-in display scaling broken after undocking | **Done** | Mode restore for the built-in-only setup |
 | Spaces assigned to wrong monitor / windows on wrong Space | **Not possible** without SIP (verified on 26.6) | Report only |
 | Monitors not waking / not detected | Not fixable (hardware/driver) | — |
-| Mirroring, HDR, color profile, Dock position | Not done (low frequency) | `CGConfigureDisplayMirrorOfDisplay`, ColorSync |
+| Mirroring, HDR | **Done** | `CGConfigureDisplayMirrorOfDisplay`, MonitorPanel HDR preference |
+| Color profile, Dock position | Not done (low frequency) | ColorSync |
 
 ## User reports
 
