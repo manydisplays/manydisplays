@@ -9,6 +9,7 @@ All notable changes to this project are documented here. The format follows
 - Settings → Reset Settings to Defaults… (keeps the licence, the saved layouts and the login item).
 
 ### Fixed
+- Windows of a busy app (Finder with many windows open) could be written off as unreachable after a single Accessibility timeout and never restored again. The lookup now retries with more time, a window is only given up after three misses, the mark is cleared as soon as the app reports the window, and the log says what happened.
 - Chrome's small helper strips are no longer saved, so they never show up as "windows will be restored when you visit their Space".
 - "Save Current Layout" no longer puts windows back to their previously restored position (the post-restore drift guard is cleared by a manual save), so saving never moves or resizes anything.
 - "Restore Windows Now" and "Save Current Layout" work while tracking is paused; the pause only stops the automatic saving and restoring.

@@ -81,6 +81,9 @@ final class Engine {
     private var userMovedAt: [CGWindowID: Date] = [:]
     /// Window-server windows that are not real AX windows (e.g. Chrome's 89 px helper strips).
     private var nonAXWindows: Set<CGWindowID> = []
+    /// Lookups that found nothing, per window: a window is only written off as non-AX after
+    /// several, because a busy app (Finder with many windows) can time out on a single query.
+    private var axMisses: [CGWindowID: Int] = [:]
     private var lastRestoreAt = Date.distantPast
     private var overlayShownAt: Date?
     private var restoreStartedAt = Date()
@@ -217,6 +220,9 @@ final class Engine {
 
     func windowMoved(_ element: AXUIElement, byUser: Bool) {
         queue.async {
+            if let id = AX.windowID(element) {
+                self.sawAXWindow(id)
+            }
             if byUser, let id = AX.windowID(element) {
                 if self.userMovedAt.count > Tuning.userMoveCacheLimit {
                     self.userMovedAt.removeAll()
@@ -233,7 +239,9 @@ final class Engine {
 
     func windowTitleMaybeChanged(_ element: AXUIElement) {
         queue.async {
-            guard let id = AX.windowID(element), let title = AX.title(element) else { return }
+            guard let id = AX.windowID(element) else { return }
+            self.sawAXWindow(id)
+            guard let title = AX.title(element) else { return }
             if self.titles.count > Tuning.titleCacheLimit {
                 self.titles.removeAll()
             }
@@ -345,6 +353,27 @@ final class Engine {
                 self.snapshot()
             }
             self.store.flush()
+        }
+    }
+
+    /// The app reported this window through Accessibility: it is reachable after all.
+    private func sawAXWindow(_ id: CGWindowID) {
+        axMisses.removeValue(forKey: id)
+        if nonAXWindows.remove(id) != nil || knownUnreachable.remove(id) != nil {
+            Log.info("Window \(id) is reachable through Accessibility again")
+        }
+    }
+
+    /// A lookup found nothing for a window that is on screen: after a few misses it is written off.
+    private func missedAXWindow(_ id: CGWindowID, app: String, result: inout PassResult) {
+        let misses = axMisses[id, default: 0] + 1
+        axMisses[id] = misses
+        if misses >= 3 {
+            nonAXWindows.insert(id)
+            Log.info("\(app) \(id) is visible but not reachable through Accessibility; leaving it alone")
+        } else {
+            result.failed.insert(id)
+            result.details.append("\(app) \(id) NOT FOUND through Accessibility (attempt \(misses) of 3)")
         }
     }
 
@@ -1169,10 +1198,10 @@ final class Engine {
                 axElements.merge(found) { a, _ in a }
             }
             apply(list, pid: pid, elements: elements) { id, target in
-                if isOnActiveDesktop(id) {
-                    nonAXWindows.insert(id) // visible yet not an AX window: nothing to move
-                } else if deep && !knownUnreachable.contains(id) {
-                    leftForDeep[pid, default: []].append((id, target))
+                if deep, !knownUnreachable.contains(id) {
+                    leftForDeep[pid, default: []].append((id, target)) // wide scan, on screen or not
+                } else if isOnActiveDesktop(id) {
+                    missedAXWindow(id, app: layout.windows[String(id)]?.appName ?? "?", result: &result)
                 } else {
                     result.failed.insert(id) // retried when its desktop is shown
                 }
@@ -1194,8 +1223,12 @@ final class Engine {
                 let found = foundByPid[pid] ?? [:]
                 axElements.merge(found) { a, _ in a }
                 apply(list, pid: pid, elements: found) { id, _ in
-                    knownUnreachable.insert(id)
-                    result.failed.insert(id)
+                    if isOnActiveDesktop(id) {
+                        missedAXWindow(id, app: layout.windows[String(id)]?.appName ?? "?", result: &result)
+                    } else {
+                        knownUnreachable.insert(id)
+                        result.failed.insert(id)
+                    }
                 }
             }
         }

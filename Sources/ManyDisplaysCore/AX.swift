@@ -63,7 +63,13 @@ enum AX {
     ) -> [CGWindowID: AXUIElement] {
         let app = application(pid)
         var found: [CGWindowID: AXUIElement] = [:]
-        for element in standardWindows(app) {
+        // A busy app (Finder with many windows) can miss the 0.5 s timeout: ask once more with more room.
+        var listed = attribute(app, kAXWindowsAttribute) as? [AXUIElement]
+        if listed == nil {
+            AXUIElementSetMessagingTimeout(app, 2.0)
+            listed = attribute(app, kAXWindowsAttribute) as? [AXUIElement]
+        }
+        for element in listed ?? [] {
             if let id = windowID(element), wanted.contains(id) {
                 found[id] = element
             }
