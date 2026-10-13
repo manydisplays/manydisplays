@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-13
+
 ### Added
 - Licensing for the distributed build: 14-day trial, offline-verified Ed25519 licence keys issued after a Stripe checkout, one year of updates per licence (see docs/LICENSING.md). Builds from source stay free.
 - Unit tests for the pure logic (frame scaling, closest layout, window re-linking, display fixes, shortcut parsing).
