@@ -1,0 +1,31 @@
+# Changelog
+
+All notable changes to this project are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [Unreleased]
+
+### Added
+- Unit tests for the pure logic (frame scaling, closest layout, window re-linking, display fixes, shortcut parsing).
+- Configurable global shortcuts through `defaults write` (`restoreHotKey`, `saveHotKey`).
+- Sparkle updates ("Check for Updates…"), enabled in release builds that carry a feed URL and public key.
+- Universal (Apple Silicon + Intel) build, DMG packaging and notarization in `scripts/build-app.sh`.
+- App icon and logo (`Resources/AppIcon.svg` is the master; `scripts/make-icon.swift` and `scripts/make-logo.swift` render the icns, PNGs and wordmark), CI (build, test, lint), CONTRIBUTING, SECURITY, CODE_OF_CONDUCT.
+
+### Changed
+- The menu bar icon while tracking is the app's own mark (two displays) instead of a generic split rectangle.
+- Bundle identifier is now `com.manydisplays.ManyDisplays` (macOS will ask for Accessibility once more).
+- System windows (Control Center, Dock, Spotlight…) are excluded by bundle identifier, so it works in every language.
+- Private macOS symbols are resolved at runtime; a missing one no longer prevents the app from launching.
+- Mirroring is only turned off after a display (re)connection, never after a plain unlock.
+- All timings and thresholds live in `Tuning.swift`.
+
+### Fixed
+- An unresponsive app could stall the engine for over a minute during a deep window scan.
+- Re-linking windows after an app restart scanned apps one by one; now in parallel.
+- Log file is kept open instead of reopened for every line.
+
+## [1.0.0] - 2026-10-13
+
+First private release: tracking, restore after sleep/lock/reconnect, display arrangement, rotation,
+resolution and HDR fixes, blur overlay, drift guard, Spaces awareness.

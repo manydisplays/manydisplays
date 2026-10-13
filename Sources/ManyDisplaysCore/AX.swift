@@ -2,7 +2,9 @@ import AppKit
 import ApplicationServices
 
 enum AX {
-    static var isTrusted: Bool { AXIsProcessTrusted() }
+    static var isTrusted: Bool {
+        AXIsProcessTrusted()
+    }
 
     static func promptForTrust() {
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
@@ -17,7 +19,7 @@ enum AX {
 
     static func windowID(_ element: AXUIElement) -> CGWindowID? {
         var id: CGWindowID = 0
-        return _AXUIElementGetWindow(element, &id) == .success && id != 0 ? id : nil
+        return PrivateAPI._AXUIElementGetWindow(element, &id) == .success && id != 0 ? id : nil
     }
 
     static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -53,30 +55,42 @@ enum AX {
     /// other spaces (which kAXWindowsAttribute hides): it builds remote element tokens
     /// directly, the technique AltTab uses. Element ids grow over an app's lifetime (Chrome
     /// reaches ~20k after days open), so the scan is wide but stops as soon as all are found.
-    static func elements(pid: pid_t, wanted: Set<CGWindowID>, deep: Bool,
-                         budget: TimeInterval = 1.0) -> [CGWindowID: AXUIElement] {
+    static func elements(
+        pid: pid_t,
+        wanted: Set<CGWindowID>,
+        deep: Bool,
+        budget: TimeInterval = Tuning.deepScanBudget
+    ) -> [CGWindowID: AXUIElement] {
         let app = application(pid)
         var found: [CGWindowID: AXUIElement] = [:]
         for element in standardWindows(app) {
-            if let id = windowID(element), wanted.contains(id) { found[id] = element }
+            if let id = windowID(element), wanted.contains(id) {
+                found[id] = element
+            }
         }
         guard deep, found.count < wanted.count else { return found }
 
         var token = Data(count: 20)
-        token.replaceSubrange(0..<4, with: withUnsafeBytes(of: pid) { Data($0) })
-        token.replaceSubrange(4..<8, with: withUnsafeBytes(of: Int32(0)) { Data($0) })
-        token.replaceSubrange(8..<12, with: withUnsafeBytes(of: Int32(0x636F_636F)) { Data($0) })
+        token.replaceSubrange(0 ..< 4, with: withUnsafeBytes(of: pid) { Data($0) })
+        token.replaceSubrange(4 ..< 8, with: withUnsafeBytes(of: Int32(0)) { Data($0) })
+        token.replaceSubrange(8 ..< 12, with: withUnsafeBytes(of: Int32(0x636F_636F)) { Data($0) })
+        // Each probe can wait up to the element's messaging timeout when the app is busy, so the
+        // budget is checked on every iteration (an unresponsive app must not stall the engine).
         let deadline = Date().addingTimeInterval(budget)
-        for elementID: UInt64 in 0..<60_000 {
-            if elementID % 1000 == 0, Date() > deadline { break }
-            token.replaceSubrange(12..<20, with: withUnsafeBytes(of: elementID) { Data($0) })
-            guard let element = _AXUIElementCreateWithRemoteToken(token as CFData)?.takeRetainedValue() else { continue }
+        for elementID: UInt64 in 0 ..< Tuning.deepScanElementLimit {
+            if Date() > deadline {
+                break
+            }
+            token.replaceSubrange(12 ..< 20, with: withUnsafeBytes(of: elementID) { Data($0) })
+            guard let element = PrivateAPI._AXUIElementCreateWithRemoteToken(token as CFData) else { continue }
             AXUIElementSetMessagingTimeout(element, 0.1)
             // Child elements also report their window id, so check the role.
             guard let id = windowID(element), wanted.contains(id), found[id] == nil,
                   (attribute(element, kAXRoleAttribute) as? String) == kAXWindowRole else { continue }
             found[id] = element
-            if found.count == wanted.count { break }
+            if found.count == wanted.count {
+                break
+            }
         }
         return found
     }
@@ -88,9 +102,13 @@ enum AX {
         // AXEnhancedUserInterface (enabled by VoiceOver-like tools) makes Chrome/Electron
         // animate every change; turn it off while moving, as Rectangle does.
         let enhanced = (attribute(app, "AXEnhancedUserInterface") as? Bool) ?? false
-        if enhanced { AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse) }
+        if enhanced {
+            AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse)
+        }
         defer {
-            if enhanced { AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue) }
+            if enhanced {
+                AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+            }
         }
 
         var origin = frame.origin

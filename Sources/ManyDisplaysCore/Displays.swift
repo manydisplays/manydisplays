@@ -72,9 +72,10 @@ enum Displays {
 
     /// Every active display, including the secondaries of a mirror set.
     static func all() -> [LiveDisplay] {
-        // Active displays (drawable; sleeping ones are excluded), plus online mirror secondaries
-        // in case they are not listed.
-        func list(_ fetch: (UInt32, UnsafeMutablePointer<CGDirectDisplayID>?, UnsafeMutablePointer<UInt32>?) -> CGError) -> [CGDirectDisplayID] {
+        /// Active displays (drawable; sleeping ones are excluded), plus online mirror secondaries
+        /// in case they are not listed.
+        func list(_ fetch: (UInt32, UnsafeMutablePointer<CGDirectDisplayID>?, UnsafeMutablePointer<UInt32>?) -> CGError)
+            -> [CGDirectDisplayID] {
             var count: UInt32 = 0
             guard fetch(0, nil, &count) == .success, count > 0 else { return [] }
             var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
@@ -83,7 +84,7 @@ enum Displays {
         }
         var active = list(CGGetActiveDisplayList)
         for id in list(CGGetOnlineDisplayList)
-        where !active.contains(id) && CGDisplayMirrorsDisplay(id) != kCGNullDirectDisplay {
+            where !active.contains(id) && CGDisplayMirrorsDisplay(id) != kCGNullDirectDisplay {
             active.append(id)
         }
 
@@ -97,12 +98,15 @@ enum Displays {
             let uuid = CGDisplayCreateUUIDFromDisplayID(id).map {
                 CFUUIDCreateString(nil, $0.takeRetainedValue()) as String
             } ?? ""
-            let base: String
-            if CGDisplayIsBuiltin(id) != 0 {
-                base = "builtin"
+            let base = if CGDisplayIsBuiltin(id) != 0 {
+                "builtin"
             } else {
-                base = String(format: "%04x-%04x-%08x",
-                              CGDisplayVendorNumber(id), CGDisplayModelNumber(id), CGDisplaySerialNumber(id))
+                String(
+                    format: "%04x-%04x-%08x",
+                    CGDisplayVendorNumber(id),
+                    CGDisplayModelNumber(id),
+                    CGDisplaySerialNumber(id)
+                )
             }
             raws.append(Raw(id: id, base: base, uuid: uuid))
         }
@@ -122,17 +126,23 @@ enum Displays {
                     keys[sub[0].id] = "\(base)-\(uuid.prefix(8))"
                     continue
                 }
-                if ports == nil { ports = DisplayPorts.portIDs(for: raws.map(\.id)) }
+                if ports == nil {
+                    ports = DisplayPorts.portIDs(for: raws.map(\.id))
+                }
                 let subPorts = sub.compactMap { ports?[$0.id] }
                 if subPorts.count == sub.count, Set(subPorts).count == sub.count {
-                    for r in sub { keys[r.id] = "\(base)-port\(ports![r.id]!)" }
+                    for r in sub {
+                        keys[r.id] = "\(base)-port\(ports![r.id]!)"
+                    }
                     continue
                 }
                 let ordered = sub.sorted {
                     let a = CGDisplayBounds($0.id), b = CGDisplayBounds($1.id)
                     return a.minX != b.minX ? a.minX < b.minX : a.minY < b.minY
                 }
-                for (i, r) in ordered.enumerated() { keys[r.id] = "\(base)-\(uuid.prefix(8))-pos\(i)" }
+                for (i, r) in ordered.enumerated() {
+                    keys[r.id] = "\(base)-\(uuid.prefix(8))-pos\(i)"
+                }
             }
         }
 
@@ -186,7 +196,9 @@ enum Displays {
                 best = d
             }
         }
-        if best != nil { return best }
+        if best != nil {
+            return best
+        }
         let c = CGPoint(x: rect.midX, y: rect.midY)
         return displays.min {
             hypot($0.bounds.midX - c.x, $0.bounds.midY - c.y) < hypot($1.bounds.midX - c.x, $1.bounds.midY - c.y)
@@ -210,12 +222,18 @@ enum Displays {
         for d in current {
             guard let s = savedByKey[d.key] else { return nil }
             fix.origins[d.key] = s.frame.origin
-            if current.count >= 2, s.frame.origin != d.bounds.origin { fix.arrangementChanged = true }
-            if let rotation = s.rotation, rotation != d.rotation { continue } // fixed in an earlier step
+            if current.count >= 2, s.frame.origin != d.bounds.origin {
+                fix.arrangementChanged = true
+            }
+            if let rotation = s.rotation, rotation != d.rotation {
+                continue
+            } // fixed in an earlier step
             let sameMode = s.frame.size == d.bounds.size && s.pixelWidth == d.pixelWidth
                 && s.pixelHeight == d.pixelHeight
                 && (s.refreshRate.map { abs($0 - d.refreshRate) < 0.5 } ?? true)
-            if !sameMode, let mode = matchingMode(for: s, on: d.id) { fix.modes[d.key] = mode }
+            if !sameMode, let mode = matchingMode(for: s, on: d.id) {
+                fix.modes[d.key] = mode
+            }
         }
         guard fix.arrangementChanged || !fix.modes.isEmpty, fix.origins.values.contains(.zero) else { return nil }
         return fix
@@ -228,7 +246,9 @@ enum Displays {
             $0.width == Int(saved.frame.width) && $0.height == Int(saved.frame.height)
                 && $0.pixelWidth == saved.pixelWidth && $0.pixelHeight == saved.pixelHeight
         }
-        if let id = saved.modeID, let exact = candidates.first(where: { $0.ioDisplayModeID == id }) { return exact }
+        if let id = saved.modeID, let exact = candidates.first(where: { $0.ioDisplayModeID == id }) {
+            return exact
+        }
         if let rate = saved.refreshRate {
             return candidates.min { abs($0.refreshRate - rate) < abs($1.refreshRate - rate) }
         }
@@ -241,7 +261,9 @@ enum Displays {
         let savedByKey = Dictionary(saved.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         var result: [CGDirectDisplayID: Int] = [:]
         for d in current {
-            if let rotation = savedByKey[d.key]?.rotation, rotation != d.rotation { result[d.id] = rotation }
+            if let rotation = savedByKey[d.key]?.rotation, rotation != d.rotation {
+                result[d.id] = rotation
+            }
         }
         return result
     }
@@ -254,7 +276,9 @@ enum Displays {
         let live = DisplayPanel.hdrStates()
         var result: [CGDirectDisplayID: Bool] = [:]
         for d in current {
-            if let want = savedHDR[d.key], let now = live[d.id], want != now { result[d.id] = want }
+            if let want = savedHDR[d.key], let now = live[d.id], want != now {
+                result[d.id] = want
+            }
         }
         return result
     }
@@ -262,7 +286,9 @@ enum Displays {
     static func unmirror(_ ids: [CGDirectDisplayID]) -> Bool {
         var config: CGDisplayConfigRef?
         guard CGBeginDisplayConfiguration(&config) == .success, let config else { return false }
-        for id in ids { CGConfigureDisplayMirrorOfDisplay(config, id, kCGNullDirectDisplay) }
+        for id in ids {
+            CGConfigureDisplayMirrorOfDisplay(config, id, kCGNullDirectDisplay)
+        }
         if CGCompleteDisplayConfiguration(config, .permanently) != .success {
             CGCancelDisplayConfiguration(config)
             return false
@@ -274,7 +300,9 @@ enum Displays {
         var config: CGDisplayConfigRef?
         guard CGBeginDisplayConfiguration(&config) == .success, let config else { return false }
         for d in current {
-            if let mode = fix.modes[d.key] { CGConfigureDisplayWithDisplayMode(config, d.id, mode, nil) }
+            if let mode = fix.modes[d.key] {
+                CGConfigureDisplayWithDisplayMode(config, d.id, mode, nil)
+            }
             if fix.arrangementChanged, let p = fix.origins[d.key] {
                 CGConfigureDisplayOrigin(config, d.id, Int32(p.x), Int32(p.y))
             }

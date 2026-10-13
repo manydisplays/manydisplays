@@ -34,7 +34,7 @@ final class Engine {
         var profiles: [ProfileSummary] = []
     }
 
-    let queue = DispatchQueue(label: "com.martinacuna.manydisplays.engine", qos: .utility)
+    let queue = DispatchQueue(label: AppIdentity.bundleID + ".engine", qos: .utility)
     var onStatusChange: (() -> Void)?
 
     private let store = LayoutStore()
@@ -75,6 +75,7 @@ final class Engine {
         let since: Date
         var visibleSince: Date?
     }
+
     private var offSpaceWatch: [CGWindowID: Watch] = [:]
     /// Windows the user moved/resized themselves (mouse or shortcut right before the change).
     private var userMovedAt: [CGWindowID: Date] = [:]
@@ -113,7 +114,16 @@ final class Engine {
 
     func start() {
         queue.async {
-            Log.info("ManyDisplays started (boot \(Boot.session), AX=\(AX.isTrusted))")
+            Log
+                .info(
+                    "\(AppIdentity.name) \(AppIdentity.version) started (boot \(Boot.session), AX=\(AX.isTrusted), macOS \(ProcessInfo.processInfo.operatingSystemVersionString))"
+                )
+            if !PrivateAPI.isAvailable {
+                Log
+                    .info(
+                        "This macOS lacks private symbols the app needs (\(PrivateAPI.missing.joined(separator: ", "))); windows cannot be tracked"
+                    )
+            }
             if let session = CGSessionCopyCurrentDictionary() as? [String: Any],
                (session["CGSSessionScreenIsLocked"] as? Bool) == true {
                 Log.info("Started while the screen is locked; will restore on unlock")
@@ -137,10 +147,14 @@ final class Engine {
         queue.async {
             Log.info("Display reconfigured\(hotplug ? " (connected/disconnected)" : "")")
             self.lastReconfigAt = Date()
-            if hotplug { self.sawHotplug = true }
+            if hotplug {
+                self.sawHotplug = true
+            }
             self.hdrCacheStale = true
-            if self.mode != .frozen { self.freeze("displays reconfigured") }
-            self.scheduleSettle(after: 2.5, reason: "displays stable")
+            if self.mode != .frozen {
+                self.freeze("displays reconfigured")
+            }
+            self.scheduleSettle(after: Tuning.displaySettle, reason: "displays stable")
         }
     }
 
@@ -156,7 +170,7 @@ final class Engine {
     func didWake() {
         queue.async {
             self.asleep = false
-            self.scheduleSettle(after: 3.0, reason: "Mac woke up")
+            self.scheduleSettle(after: Tuning.wakeSettle, reason: "Mac woke up")
         }
     }
 
@@ -169,7 +183,7 @@ final class Engine {
     }
 
     func screensDidWake() {
-        queue.async { self.scheduleSettle(after: 3.0, reason: "displays awake") }
+        queue.async { self.scheduleSettle(after: Tuning.wakeSettle, reason: "displays awake") }
     }
 
     func screenLockChanged(locked: Bool) {
@@ -185,7 +199,7 @@ final class Engine {
                 self.screenLocked = false
                 // Displays usually reconnect before the password is typed; if they have been
                 // stable for a while there is no need to wait long.
-                let calm = Date().timeIntervalSince(self.lastReconfigAt) > 2.5
+                let calm = Date().timeIntervalSince(self.lastReconfigAt) > Tuning.displaySettle
                 let delay: TimeInterval = calm ? 0.3 : 1.5
                 // Veil the screens right away if windows are visibly out of place.
                 if Settings.blurWhileRestoring, !Settings.paused, self.overlayShownAt == nil, self.visibleWindowsLookMoved() {
@@ -201,28 +215,32 @@ final class Engine {
     func windowMoved(_ element: AXUIElement, byUser: Bool) {
         queue.async {
             if byUser, let id = AX.windowID(element) {
-                if self.userMovedAt.count > 500 { self.userMovedAt.removeAll() }
+                if self.userMovedAt.count > Tuning.userMoveCacheLimit {
+                    self.userMovedAt.removeAll()
+                }
                 self.userMovedAt[id] = Date()
             }
-            self.scheduleSnapshot(after: 1.5)
+            self.scheduleSnapshot(after: Tuning.snapshotDebounce)
         }
     }
 
     func windowEvent() {
-        queue.async { self.scheduleSnapshot(after: 1.5) }
+        queue.async { self.scheduleSnapshot(after: Tuning.snapshotDebounce) }
     }
 
     func windowTitleMaybeChanged(_ element: AXUIElement) {
         queue.async {
             guard let id = AX.windowID(element), let title = AX.title(element) else { return }
-            if self.titles.count > 3000 { self.titles.removeAll() }
+            if self.titles.count > Tuning.titleCacheLimit {
+                self.titles.removeAll()
+            }
             self.titles[id] = title
         }
     }
 
     func activeSpaceChanged() {
         queue.async {
-            self.scheduleSnapshot(after: 1.0)
+            self.scheduleSnapshot(after: Tuning.spaceChangeDebounce)
             guard self.mode == .tracking, !self.pending.isEmpty else { return }
             self.pendingRestoreWork?.cancel()
             let work = DispatchWorkItem { [weak self] in self?.restorePending() }
@@ -234,7 +252,9 @@ final class Engine {
     func accessibilityGranted() {
         queue.async {
             Log.info("Accessibility permission granted")
-            if self.mode == .tracking { DispatchQueue.main.async { AXHub.shared.start() } }
+            if self.mode == .tracking {
+                DispatchQueue.main.async { AXHub.shared.start() }
+            }
             self.publish()
         }
     }
@@ -250,7 +270,9 @@ final class Engine {
             }
             self.pending.removeAll()
             self.activeProfileID = Displays.profileID(displays)
-            if self.mode != .tracking { self.beginTracking() }
+            if self.mode != .tracking {
+                self.beginTracking()
+            }
             self.snapshot()
             self.store.flush()
             Log.info("Manual save")
@@ -298,7 +320,9 @@ final class Engine {
 
     func flushSync() {
         queue.sync {
-            if self.mode == .tracking { self.snapshot() }
+            if self.mode == .tracking {
+                self.snapshot()
+            }
             self.store.flush()
         }
     }
@@ -318,7 +342,9 @@ final class Engine {
         snapshotWork = nil
         pendingRestoreWork?.cancel()
         settleWork?.cancel()
-        if mode != .frozen { Log.info("On hold: \(reason)") }
+        if mode != .frozen {
+            Log.info("On hold: \(reason)")
+        }
         setMode(.frozen, reason)
         overlayShownAt = nil
         DispatchQueue.main.async { RestoreOverlay.shared.hide() }
@@ -330,7 +356,7 @@ final class Engine {
             self.settled(reason: "watchdog")
         }
         watchdogWork = work
-        queue.asyncAfter(deadline: .now() + 30, execute: work)
+        queue.asyncAfter(deadline: .now() + Tuning.watchdog, execute: work)
     }
 
     /// Takes a final snapshot right before the system starts moving things around.
@@ -367,9 +393,13 @@ final class Engine {
         }
         let displays = Displays.current()
         guard Displays.hasExternal(displays) else {
-            if fixBuiltinDisplayAfterUndock(displays) { return }
+            if fixBuiltinDisplayAfterUndock(displays) {
+                return
+            }
             dropOverlay()
-            if mode != .inactive { Log.info("No external displays: idle") }
+            if mode != .inactive {
+                Log.info("No external displays: idle")
+            }
             activeProfileID = nil
             pending.removeAll()
             resetCycleFlags()
@@ -389,7 +419,9 @@ final class Engine {
         }
         activeProfileID = profile
 
-        if Settings.fixArrangement, sawHotplug || sawSleepOrLock, !displayFixesDone.contains("mirror") {
+        // Only after a (re)connection: mirroring the user turned on before locking the screen
+        // for a presentation must survive the unlock.
+        if Settings.fixArrangement, sawHotplug, !displayFixesDone.contains("mirror") {
             displayFixesDone.insert("mirror")
             let mirrored = Displays.all().filter { $0.mirrorOf != kCGNullDirectDisplay }
             let extended = Set(displays.map(\.key)).union(mirrored.map(\.key))
@@ -397,7 +429,7 @@ final class Engine {
                 Log.info("macOS turned on mirroring for \(mirrored.count) display(s) that were extended; turning it off")
                 if Displays.unmirror(mirrored.map(\.id)) {
                     setMode(.frozen, "turning off mirroring")
-                    scheduleSettle(after: 3.0, reason: reason)
+                    scheduleSettle(after: Tuning.displayFixSettle, reason: reason)
                     return
                 }
             }
@@ -416,20 +448,31 @@ final class Engine {
             // App (re)started: windows still have their ids unless apps or the Mac restarted.
             // Re-link windows that changed id and only restore those.
             let rebound = rebindDeadRecords(profile: profile)
-            if !rebound.isEmpty { Log.info("Re-linked \(rebound.count) windows after restart") }
+            if !rebound.isEmpty {
+                Log.info("Re-linked \(rebound.count) windows after restart")
+            }
             if !startedLocked && !restoreOnLaunch {
                 if rebound.isEmpty {
                     beginTracking()
                 } else {
-                    startRestore(layout: store.layout(profile) ?? layout, displays: displays, reason: "launch",
-                                 only: rebound, allowArrangement: false)
+                    startRestore(
+                        layout: store.layout(profile) ?? layout,
+                        displays: displays,
+                        reason: "launch",
+                        only: rebound,
+                        allowArrangement: false
+                    )
                 }
                 return
             }
             startedLocked = false
             restoreOnLaunch = false
-            startRestore(layout: store.layout(profile) ?? layout, displays: displays, reason: reason,
-                         allowArrangement: true)
+            startRestore(
+                layout: store.layout(profile) ?? layout,
+                displays: displays,
+                reason: reason,
+                allowArrangement: true
+            )
             return
         }
 
@@ -440,14 +483,7 @@ final class Engine {
     /// borrow the layout that shares the most external monitors; windows go back to the
     /// monitors that are present, the rest stay where macOS put them.
     private func closestLayout(to displays: [LiveDisplay]) -> Layout? {
-        let external = Set(displays.filter { !$0.isBuiltin }.map(\.key))
-        return store.layouts.values
-            .map { layout -> (Layout, Int) in
-                (layout, Set(layout.displays.filter { !$0.isBuiltin }.map(\.key)).intersection(external).count)
-            }
-            .filter { $0.1 > 0 }
-            .max { $0.1 != $1.1 ? $0.1 < $1.1 : $0.0.updatedAt < $1.0.updatedAt }?
-            .0
+        LayoutMath.closestLayout(to: displays, among: Array(store.layouts.values))
     }
 
     /// Puts the display setup back the way it was saved, one step per settle: rotation, then
@@ -455,7 +491,7 @@ final class Engine {
     private func applyNextDisplayFix(layout: Layout, displays: [LiveDisplay], reason: String) -> Bool {
         func applied(_ what: String) -> Bool {
             setMode(.frozen, what)
-            scheduleSettle(after: 3.0, reason: reason)
+            scheduleSettle(after: Tuning.displayFixSettle, reason: reason)
             return true
         }
 
@@ -475,10 +511,16 @@ final class Engine {
         if displayFixesDone.insert("config").inserted,
            let fix = Displays.configurationFix(saved: layout.displays, current: displays) {
             var what: [String] = []
-            if fix.arrangementChanged { what.append("arrangement") }
-            if !fix.modes.isEmpty { what.append("resolution/refresh rate of \(fix.modes.count) display(s)") }
+            if fix.arrangementChanged {
+                what.append("arrangement")
+            }
+            if !fix.modes.isEmpty {
+                what.append("resolution/refresh rate of \(fix.modes.count) display(s)")
+            }
             Log.info("macOS changed the display \(what.joined(separator: " and ")); restoring the saved setup")
-            if Displays.apply(fix, current: displays) { return applied("restoring display setup") }
+            if Displays.apply(fix, current: displays) {
+                return applied("restoring display setup")
+            }
             Log.info("Could not change the display configuration")
         }
 
@@ -510,7 +552,9 @@ final class Engine {
             var layout = store.layout(profile) ?? Layout(profileID: profile)
             layout.displays = displays.map { DisplayInfo($0) }
             layout.windows = [:]
-            if store.put(layout) { scheduleFlush() }
+            if store.put(layout) {
+                scheduleFlush()
+            }
             return false
         }
         guard displayFixesDone.insert("builtin").inserted, let saved = store.layout(profile),
@@ -519,7 +563,7 @@ final class Engine {
         Log.info("Built-in display came back at a different resolution after undocking; restoring it")
         guard Displays.apply(fix, current: displays) else { return false }
         setMode(.frozen, "restoring built-in display")
-        scheduleSettle(after: 2.5, reason: "displays stable")
+        scheduleSettle(after: Tuning.displaySettle, reason: "displays stable")
         return true
     }
 
@@ -560,7 +604,7 @@ final class Engine {
         // Catches changes that produce no AX notification (e.g. moving a window between
         // desktops in Mission Control). Generous leeway lets the system coalesce wakeups.
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 20, repeating: 20, leeway: .seconds(5))
+        timer.schedule(deadline: .now() + Tuning.heartbeatInterval, repeating: Tuning.heartbeatInterval, leeway: .seconds(5))
         timer.setEventHandler { [weak self] in self?.scheduleSnapshot(after: 0) }
         timer.resume()
         heartbeat = timer
@@ -584,12 +628,12 @@ final class Engine {
         guard Displays.profileID(displays) == profile else {
             // Displays changed under us without a callback yet: do not save a shuffled layout.
             freeze("display change detected")
-            scheduleSettle(after: 2.5, reason: "displays stable")
+            scheduleSettle(after: Tuning.displaySettle, reason: "displays stable")
             return
         }
 
         let topology = Spaces.topology()
-        let capture = WindowList.capture(topology: topology, ownPID: ownPID)
+        let capture = WindowList.capture(topology: topology, ownPID: ownPID, apps: apps)
         let now = Date()
         pending = pending.filter { $0.value > now && capture.existing.contains($0.key) }
 
@@ -607,12 +651,14 @@ final class Engine {
         var windows = layout.windows.filter { capture.existing.contains(CGWindowID($0.key) ?? 0) }
 
         for window in capture.trackable {
-            if pending[window.id] != nil || drifted.contains(window.id) { continue }
+            if pending[window.id] != nil || drifted.contains(window.id) {
+                continue
+            }
             let key = String(window.id)
             let onActiveDesktop = !Set(window.spaces).isDisjoint(with: topology.active)
             var frame = window.frame
             if let old = layout.windows[key], let oldDisplay = byKey[old.displayKey] {
-                let oldFrame = targetFrame(old, saved: savedDisplays[old.displayKey], current: oldDisplay)
+                let oldFrame = LayoutMath.targetFrame(old, saved: savedDisplays[old.displayKey], current: oldDisplay)
                 if !frame.isClose(to: oldFrame) {
                     // Windows on desktops you are not looking at cannot have been moved by you;
                     // what the window server reports for them is an animation in progress.
@@ -620,8 +666,8 @@ final class Engine {
                     if let real = axFrame(of: window) {
                         guard real.matches(frame) else { continue } // Mission Control / swipe in progress
                         frame = real
-                    } else if (userMovedAt[window.id] ?? .distantPast) < now.addingTimeInterval(-30),
-                              !UserInput.happened(within: 5) {
+                    } else if (userMovedAt[window.id] ?? .distantPast) < now.addingTimeInterval(-Tuning.userMoveMemory),
+                              !UserInput.happened(within: Tuning.userInputWindow) {
                         continue // cannot confirm with the app and nobody touched anything: ignore
                     }
                 }
@@ -645,25 +691,34 @@ final class Engine {
                 fullscreen: window.spaces.contains { topology.types[$0] == 4 }
             )
         }
-        if now.timeIntervalSince(lastRestoreAt) < 600 {
+        if now.timeIntervalSince(lastRestoreAt) < Tuning.postRestoreDiagnostics {
             // Diagnostics: who moves windows after a restore, and when.
             var changes: [String] = []
             for (key, new) in windows {
-                guard let old = layout.windows[key], !old.relFrame.isClose(to: new.relFrame) || old.displayKey != new.displayKey else { continue }
+                guard let old = layout.windows[key],
+                      !old.relFrame.isClose(to: new.relFrame) || old.displayKey != new.displayKey else { continue }
                 let id = new.windowID
-                let who = (userMovedAt[id] ?? .distantPast) > now.addingTimeInterval(-30) ? "user" : "not user"
+                let who = (userMovedAt[id] ?? .distantPast) > now.addingTimeInterval(-Tuning.userMoveMemory) ? "user" : "not user"
                 changes.append("\(new.appName) \(id) \(rect(old.relFrame)) -> \(rect(new.relFrame)) [\(who)]")
             }
             if !changes.isEmpty {
-                Log.info("Saved window changes \(Int(now.timeIntervalSince(lastRestoreAt)))s after restore: " + changes.prefix(8).joined(separator: "; "))
+                Log
+                    .info("Saved window changes \(Int(now.timeIntervalSince(lastRestoreAt)))s after restore: " + changes.prefix(8)
+                        .joined(separator: "; "))
             }
         }
         layout.windows = windows
 
-        if store.put(layout) { scheduleFlush() }
+        if store.put(layout) {
+            scheduleFlush()
+        }
         if !drifted.isEmpty {
             let result = restorePass(layout: layout, only: drifted, deep: false, overlay: false)
-            if result.moved == 0 { for id in drifted { guardAttempts[id] = 3 } }
+            if result.moved == 0 {
+                for id in drifted {
+                    guardAttempts[id] = Tuning.guardMaxAttempts
+                }
+            }
         }
         lastSave = now
         publish()
@@ -671,12 +726,19 @@ final class Engine {
 
     /// During the guard period after a restore, windows that left their restored position
     /// without the user dragging them are put back (up to 3 times each) instead of saved.
-    private func guardedDrift(layout: Layout, capture: WindowCapture, displays: [LiveDisplay],
-                              topology: SpaceTopology) -> Set<CGWindowID> {
+    private func guardedDrift(
+        layout: Layout,
+        capture: WindowCapture,
+        displays: [LiveDisplay],
+        topology: SpaceTopology
+    ) -> Set<CGWindowID> {
         let now = Date()
         offSpaceWatch = offSpaceWatch.filter { entry in
-            guard now.timeIntervalSince(entry.value.since) < 2 * 3600, capture.existing.contains(entry.key) else { return false }
-            if let visible = entry.value.visibleSince { return now.timeIntervalSince(visible) < 20 }
+            guard now.timeIntervalSince(entry.value.since) < Tuning.offSpaceWatchMax,
+                  capture.existing.contains(entry.key) else { return false }
+            if let visible = entry.value.visibleSince {
+                return now.timeIntervalSince(visible) < Tuning.offSpaceWatchAfterVisible
+            }
             return true
         }
         let globalGuard = now < guardUntil
@@ -697,12 +759,13 @@ final class Engine {
             let watchedSince = offSpaceWatch[window.id]?.since
             guard globalGuard || watchedSince != nil else { continue }
             let guardFrom = min(watchedSince ?? guardStart, guardStart)
-            guard guardAttempts[window.id, default: 0] < 3, (userMovedAt[window.id] ?? .distantPast) < guardFrom,
+            guard guardAttempts[window.id, default: 0] < Tuning.guardMaxAttempts,
+                  (userMovedAt[window.id] ?? .distantPast) < guardFrom,
                   let record = layout.windows[String(window.id)], !record.fullscreen,
                   let display = byKey[record.displayKey] else { continue }
             // Only judge what is on screen, and confirm with the app (animations look like drift).
             guard !Set(window.spaces).isDisjoint(with: topology.active) else { continue }
-            let target = targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
+            let target = LayoutMath.targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
             if !isAt(target, window) {
                 drifted.insert(window.id)
                 guardAttempts[window.id, default: 0] += 1
@@ -710,7 +773,11 @@ final class Engine {
             }
         }
         if !details.isEmpty {
-            Log.info("Moved by macOS/app \(Int(now.timeIntervalSince(guardStart)))s after restoring (no user input); putting back: " + details.joined(separator: "; "))
+            Log
+                .info(
+                    "Moved by macOS/app \(Int(now.timeIntervalSince(guardStart)))s after restoring (no user input); putting back: " +
+                        details.joined(separator: "; ")
+                )
         }
         return drifted
     }
@@ -719,7 +786,7 @@ final class Engine {
         flushWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.store.flush() }
         flushWork = work
-        queue.asyncAfter(deadline: .now() + 3, execute: work)
+        queue.asyncAfter(deadline: .now() + Tuning.flushDelay, execute: work)
     }
 
     // MARK: - Restoring
@@ -731,8 +798,13 @@ final class Engine {
         var considered = 0
     }
 
-    private func startRestore(layout: Layout, displays: [LiveDisplay], reason: String,
-                              only: Set<CGWindowID>? = nil, allowArrangement: Bool) {
+    private func startRestore(
+        layout: Layout,
+        displays: [LiveDisplay],
+        reason: String,
+        only: Set<CGWindowID>? = nil,
+        allowArrangement: Bool
+    ) {
         cycle += 1
         let myCycle = cycle
         watchdogWork?.cancel()
@@ -758,7 +830,7 @@ final class Engine {
         // drifted. Windows on other desktops are not visible, so they are handled afterwards,
         // with the blur already gone.
         restoreStartedAt = Date()
-        let delays: [TimeInterval] = [0, 1.5, 4.0]
+        let delays = Tuning.restorePassDelays
         func runPass(_ index: Int, moved: Int) {
             guard cycle == myCycle else { return }
             let current = store.layout(layout.profileID) ?? layout
@@ -791,23 +863,29 @@ final class Engine {
         // it belongs stays pending (its saved position is protected) and is retried when its
         // desktop is shown.
         let stillOff = offTarget(layout: layout, only: only)
-        let expiry = Date().addingTimeInterval(30 * 60)
-        for id in result.failed.union(stillOff) { pending[id] = expiry }
+        let expiry = Date().addingTimeInterval(Tuning.pendingExpiry)
+        for id in result.failed.union(stillOff) {
+            pending[id] = expiry
+        }
         spaceMismatches = result.spaceMismatches
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         var summary = "\(formatter.string(from: Date())): \(result.moved) moved of \(result.considered)"
-        if !pending.isEmpty { summary += ", \(pending.count) pending" }
+        if !pending.isEmpty {
+            summary += ", \(pending.count) pending"
+        }
         lastRestore = summary
         summary += String(format: " in %.1fs", Date().timeIntervalSince(restoreStartedAt))
         overlayDone()
         Log.info("Restore (\(reason)) \(summary); on another Space: \(result.spaceMismatches)")
-        if !stillOff.isEmpty { Log.info("Not in place yet (will retry on their desktop): \(describe(stillOff, in: layout))") }
+        if !stillOff.isEmpty {
+            Log.info("Not in place yet (will retry on their desktop): \(describe(stillOff, in: layout))")
+        }
         // macOS (and some apps) can keep moving windows for a while after the displays come
         // back; for 3 minutes, changes nobody asked for are undone instead of saved.
         lastRestoreAt = Date()
         guardStart = Date()
-        guardUntil = Date().addingTimeInterval(180)
+        guardUntil = Date().addingTimeInterval(Tuning.guardDuration)
         guardAttempts.removeAll()
         beginTracking()
     }
@@ -821,7 +899,7 @@ final class Engine {
         guard result.moved > 0 || !result.failed.isEmpty else { return }
         // Check a moment later whether they stayed; give up on a window after a few visits so a
         // window an app refuses to move never blocks saving forever.
-        queue.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+        queue.asyncAfter(deadline: .now() + Tuning.pendingVerifyDelay) { [weak self] in
             guard let self, self.mode == .tracking else { return }
             let current = self.store.layout(profile) ?? layout
             let stillOff = self.offTarget(layout: current, only: ids)
@@ -830,7 +908,7 @@ final class Engine {
                 if stillOff.contains(id) {
                     let attempts = self.pendingAttempts[id, default: 0] + 1
                     self.pendingAttempts[id] = attempts
-                    if attempts >= 3 {
+                    if attempts >= Tuning.pendingMaxAttempts {
                         self.pending.removeValue(forKey: id)
                         self.pendingAttempts.removeValue(forKey: id)
                         Log.info("Giving up on \(self.describe([id], in: current)); keeping where the app put it")
@@ -841,7 +919,9 @@ final class Engine {
                     restored += 1
                 }
             }
-            if restored > 0 { Log.info("Restored \(restored) pending windows on their desktop") }
+            if restored > 0 {
+                Log.info("Restored \(restored) pending windows on their desktop")
+            }
             self.publish()
         }
     }
@@ -852,16 +932,22 @@ final class Engine {
         let byKey = Dictionary(displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let savedDisplays = Dictionary(layout.displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let topology = Spaces.topology()
-        let capture = WindowList.capture(topology: topology, ownPID: ownPID)
+        let capture = WindowList.capture(topology: topology, ownPID: ownPID, apps: apps)
         var result: Set<CGWindowID> = []
         for record in layout.windows.values {
-            if let only, !only.contains(record.windowID) { continue }
-            if nonAXWindows.contains(record.windowID) { continue }
+            if let only, !only.contains(record.windowID) {
+                continue
+            }
+            if nonAXWindows.contains(record.windowID) {
+                continue
+            }
             guard let live = capture.byID[record.windowID], !record.fullscreen,
                   !live.spaces.contains(where: { topology.types[$0] == 4 }),
                   let display = byKey[record.displayKey] else { continue }
-            let target = targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
-            if !isAt(target, live) { result.insert(record.windowID) }
+            let target = LayoutMath.targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
+            if !isAt(target, live) {
+                result.insert(record.windowID)
+            }
         }
         return result
     }
@@ -873,12 +959,12 @@ final class Engine {
         let byKey = Dictionary(displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let savedDisplays = Dictionary(layout.displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let topology = Spaces.topology()
-        let capture = WindowList.capture(topology: topology, ownPID: ownPID)
+        let capture = WindowList.capture(topology: topology, ownPID: ownPID, apps: apps)
         for record in layout.windows.values where !record.fullscreen && !nonAXWindows.contains(record.windowID) {
-            guard let live = capture.byID[record.windowID], live.frame.height >= 100,
+            guard let live = capture.byID[record.windowID], live.frame.height >= Tuning.minimumWindowSide,
                   !Set(live.spaces).isDisjoint(with: topology.active),
                   let display = byKey[record.displayKey] else { continue }
-            if !live.frame.matches(targetFrame(record, saved: savedDisplays[record.displayKey], current: display)) {
+            if !live.frame.matches(LayoutMath.targetFrame(record, saved: savedDisplays[record.displayKey], current: display)) {
                 return true
             }
         }
@@ -887,9 +973,13 @@ final class Engine {
 
     /// The app's own frame for a window, if it can be reached through Accessibility.
     private func axFrame(of window: LiveWindow) -> CGRect? {
-        if let element = axElements[window.id], let frame = AX.frame(element) { return frame }
+        if let element = axElements[window.id], let frame = AX.frame(element) {
+            return frame
+        }
         guard let element = AX.elements(pid: window.pid, wanted: [window.id], deep: false)[window.id] else { return nil }
-        if axElements.count > 600 { axElements.removeAll() }
+        if axElements.count > Tuning.elementCacheLimit {
+            axElements.removeAll()
+        }
         axElements[window.id] = element
         return AX.frame(element)
     }
@@ -897,7 +987,9 @@ final class Engine {
     /// Whether a window really is at `target`. The window server's bounds can be mid-animation
     /// (Mission Control, swiping between desktops), so a mismatch is confirmed with the app.
     private func isAt(_ target: CGRect, _ window: LiveWindow) -> Bool {
-        if window.frame.matches(target) { return true }
+        if window.frame.matches(target) {
+            return true
+        }
         return axFrame(of: window)?.matches(target) ?? false
     }
 
@@ -915,12 +1007,16 @@ final class Engine {
         let byKey = Dictionary(displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let savedDisplays = Dictionary(layout.displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let topology = Spaces.topology()
-        let capture = WindowList.capture(topology: topology, ownPID: ownPID)
+        let capture = WindowList.capture(topology: topology, ownPID: ownPID, apps: apps)
 
         var jobs: [pid_t: [(CGWindowID, CGRect)]] = [:]
         for record in layout.windows.values {
-            if let only, !only.contains(record.windowID) { continue }
-            if nonAXWindows.contains(record.windowID) { continue }
+            if let only, !only.contains(record.windowID) {
+                continue
+            }
+            if nonAXWindows.contains(record.windowID) {
+                continue
+            }
             // Closed windows are never reopened; minimized/hidden ones are left alone.
             guard let live = capture.byID[record.windowID], !record.fullscreen,
                   !live.spaces.contains(where: { topology.types[$0] == 4 }),
@@ -929,15 +1025,19 @@ final class Engine {
 
             if !record.onAllSpaces,
                let wanted = record.spaceID.flatMap({ topology.types[$0] != nil ? $0 : nil })
-                ?? topology.space(at: record.spaceIndex),
+               ?? topology.space(at: record.spaceIndex),
                !live.spaces.contains(wanted) {
                 result.spaceMismatches += 1
             }
 
             // Strips under 100 px (Chrome's tab-drag helpers and the like) are not real windows.
-            if live.frame.height < 100 || live.frame.width < 100 { continue }
-            let target = targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
-            if live.frame.isClose(to: target) { continue }
+            if live.frame.height < Tuning.minimumWindowSide || live.frame.width < Tuning.minimumWindowSide {
+                continue
+            }
+            let target = LayoutMath.targetFrame(record, saved: savedDisplays[record.displayKey], current: display)
+            if live.frame.isClose(to: target) {
+                continue
+            }
             jobs[live.pid, default: []].append((record.windowID, target))
         }
 
@@ -951,16 +1051,24 @@ final class Engine {
         // Phase 1 moves everything reachable cheaply (current desktop + cached elements);
         // phase 2 looks for windows on other desktops, in parallel across apps and skipping the
         // ones known to be unreachable, so slow apps never delay the rest.
-        func apply(_ list: [(CGWindowID, CGRect)], pid: pid_t, elements: [CGWindowID: AXUIElement],
-                   onMissing: (CGWindowID, CGRect) -> Void) {
+        func apply(
+            _ list: [(CGWindowID, CGRect)],
+            pid: pid_t,
+            elements: [CGWindowID: AXUIElement],
+            onMissing: (CGWindowID, CGRect) -> Void
+        ) {
             let app = AX.application(pid)
             for (id, target) in list {
                 guard let element = elements[id] else {
                     onMissing(id, target)
                     continue
                 }
-                if AX.isMinimized(element) { continue }
-                if let current = AX.frame(element), current.matches(target) { continue } // only looked off (animation)
+                if AX.isMinimized(element) {
+                    continue
+                }
+                if let current = AX.frame(element), current.matches(target) {
+                    continue
+                } // only looked off (animation)
                 if AX.setFrame(element, app: app, to: target) {
                     result.moved += 1
                     knownUnreachable.remove(id)
@@ -1004,7 +1112,7 @@ final class Engine {
             var foundByPid: [pid_t: [CGWindowID: AXUIElement]] = [:]
             DispatchQueue.concurrentPerform(iterations: work.count) { i in
                 let (pid, list) = work[i]
-                let found = AX.elements(pid: pid, wanted: Set(list.map(\.0)), deep: true, budget: 1.0)
+                let found = AX.elements(pid: pid, wanted: Set(list.map(\.0)), deep: true, budget: Tuning.deepScanBudget)
                 lock.lock()
                 foundByPid[pid] = found
                 lock.unlock()
@@ -1021,34 +1129,20 @@ final class Engine {
         return result
     }
 
-    private func targetFrame(_ record: WindowRecord, saved: DisplayInfo?, current: LiveDisplay) -> CGRect {
-        var rel = record.relFrame
-        let bounds = current.bounds
-        if let saved, saved.frame.size != bounds.size, saved.frame.width > 0, saved.frame.height > 0 {
-            // Resolution changed: keep proportions and stay inside the display.
-            let sx = bounds.width / saved.frame.width
-            let sy = bounds.height / saved.frame.height
-            rel = CGRect(x: rel.minX * sx, y: rel.minY * sy, width: rel.width * sx, height: rel.height * sy)
-            rel.size.width = min(rel.width, bounds.width)
-            rel.size.height = min(rel.height, bounds.height)
-            rel.origin.x = min(max(rel.minX, 0), bounds.width - rel.width)
-            rel.origin.y = min(max(rel.minY, 0), bounds.height - rel.height)
-        }
-        return rel.offsetBy(dx: bounds.minX, dy: bounds.minY).integral
-    }
-
     /// After a reboot or an app relaunch the window ids change. Match the saved records to the
     /// new windows of the same app by title (or when the app has exactly one window).
     private func rebindDeadRecords(profile: String) -> Set<CGWindowID> {
         guard var layout = store.layout(profile) else { return [] }
-        let capture = WindowList.capture(topology: Spaces.topology(), ownPID: ownPID)
+        let capture = WindowList.capture(topology: Spaces.topology(), ownPID: ownPID, apps: apps)
         let dead = layout.windows.values.filter { !capture.existing.contains($0.windowID) }
         guard !dead.isEmpty else { return [] }
 
         let known = Set(layout.windows.values.map(\.windowID))
         var candidates: [String: [LiveWindow]] = [:]
         for window in capture.trackable where !known.contains(window.id) {
-            if let bundle = apps.info(window.pid).bundleID { candidates[bundle, default: []].append(window) }
+            if let bundle = apps.info(window.pid).bundleID {
+                candidates[bundle, default: []].append(window)
+            }
         }
         guard !candidates.isEmpty else {
             layout.windows = layout.windows.filter { capture.existing.contains($0.value.windowID) }
@@ -1057,28 +1151,28 @@ final class Engine {
         }
 
         // Titles of the new windows (CGWindowList only has them with Screen Recording permission).
+        // Apps are scanned in parallel: a slow one must not delay the launch by its whole budget.
         var liveTitles: [CGWindowID: String] = [:]
         if AX.isTrusted {
-            for (_, windows) in candidates {
-                guard let pid = windows.first?.pid else { continue }
+            let groups = Array(candidates.values)
+            let lock = NSLock()
+            DispatchQueue.concurrentPerform(iterations: groups.count) { i in
+                let windows = groups[i]
+                guard let pid = windows.first?.pid else { return }
+                var found: [CGWindowID: String] = [:]
                 for (id, element) in AX.elements(pid: pid, wanted: Set(windows.map(\.id)), deep: true) {
-                    if let title = AX.title(element) { liveTitles[id] = title }
+                    if let title = AX.title(element) {
+                        found[id] = title
+                    }
                 }
+                lock.lock()
+                liveTitles.merge(found) { a, _ in a }
+                lock.unlock()
             }
         }
 
-        let deadPerBundle = Dictionary(grouping: dead, by: { $0.bundleID ?? "" }).mapValues(\.count)
         var rebound: Set<CGWindowID> = []
-        for record in dead.sorted(by: { ($0.title ?? "") > ($1.title ?? "") }) {
-            guard let bundle = record.bundleID, var list = candidates[bundle], !list.isEmpty else { continue }
-            var index: Int?
-            if let title = record.title {
-                index = list.firstIndex { ($0.title ?? liveTitles[$0.id]) == title }
-            }
-            if index == nil, list.count == 1, deadPerBundle[bundle] == 1 { index = 0 }
-            guard let i = index else { continue }
-            let window = list.remove(at: i)
-            candidates[bundle] = list
+        for (record, window) in LayoutMath.rebind(dead: dead, candidates: candidates, titles: liveTitles) {
             var updated = record
             updated.windowID = window.id
             updated.pid = window.pid
@@ -1102,13 +1196,19 @@ final class Engine {
         status.lastRestore = lastRestore
         status.spaceMismatches = spaceMismatches
         status.pending = pending.count
-        if let id = activeProfileID { status.windowCount = store.layout(id)?.windows.count ?? 0 }
+        if let id = activeProfileID {
+            status.windowCount = store.layout(id)?.windows.count ?? 0
+        }
         status.profiles = store.layouts.values
             .filter { $0.displays.contains { !$0.isBuiltin } }
             .map {
-                ProfileSummary(id: $0.profileID, name: Displays.profileName($0.displays),
-                               windowCount: $0.windows.count, updatedAt: $0.updatedAt,
-                               isActive: $0.profileID == activeProfileID)
+                ProfileSummary(
+                    id: $0.profileID,
+                    name: Displays.profileName($0.displays),
+                    windowCount: $0.windows.count,
+                    updatedAt: $0.updatedAt,
+                    isActive: $0.profileID == activeProfileID
+                )
             }
             .sorted { $0.updatedAt > $1.updatedAt }
         statusLock.lock()

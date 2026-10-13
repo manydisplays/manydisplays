@@ -1,13 +1,20 @@
 import AppKit
 import Carbon
 import ServiceManagement
+import Sparkle
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private let menu = NSMenu()
     private var trustTimer: Timer?
+    /// Sparkle, only when the bundle carries a feed URL and public key (release builds).
+    private var updater: SPUStandardUpdaterController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil,
+           Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") != nil {
+            updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+        }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         menu.delegate = self
         statusItem.menu = menu
@@ -16,9 +23,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Engine.shared.onStatusChange = { [weak self] in self?.updateIcon() }
         SystemEvents.shared.install()
 
-        let mods = controlKey | optionKey | cmdKey
-        HotKeys.shared.register(keyCode: kVK_ANSI_R, modifiers: mods) { Engine.shared.restoreNow() }
-        HotKeys.shared.register(keyCode: kVK_ANSI_S, modifiers: mods) { Engine.shared.saveNow() }
+        if let spec = Settings.restoreHotKey {
+            HotKeys.shared.register(spec) { Engine.shared.restoreNow() }
+        }
+        if let spec = Settings.saveHotKey {
+            HotKeys.shared.register(spec) { Engine.shared.saveNow() }
+        }
 
         if !AX.isTrusted {
             AX.promptForTrust()
@@ -45,29 +55,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateIcon() {
         guard let button = statusItem?.button else { return }
         let status = Engine.shared.status
-        let symbol: String
-        switch status.mode {
-        case .tracking: symbol = "rectangle.split.2x1"
-        case .restoring: symbol = "arrow.triangle.2.circlepath"
-        case .frozen: symbol = "moon.zzz"
-        case .paused: symbol = "pause.rectangle"
-        case .inactive, .starting: symbol = "laptopcomputer"
+        let image: NSImage? = switch status.mode {
+        case .tracking: StatusIcon.displays(accessibilityDescription: AppIdentity.name)
+        case .restoring: symbol("arrow.triangle.2.circlepath")
+        case .frozen: symbol("moon.zzz")
+        case .paused: symbol("pause.rectangle")
+        case .inactive, .starting: symbol("laptopcomputer")
         }
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "ManyDisplays")
         image?.isTemplate = true
         button.image = image
         button.appearsDisabled = status.mode == .inactive || status.mode == .paused
-        button.toolTip = "ManyDisplays: \(describe(status))"
+        button.toolTip = "\(AppIdentity.name): \(describe(status))"
+    }
+
+    private func symbol(_ name: String) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: AppIdentity.name)
     }
 
     private func describe(_ status: Engine.Status) -> String {
         switch status.mode {
-        case .starting: return "Starting…"
-        case .inactive: return "Idle: no external displays"
-        case .tracking: return "Tracking \(status.windowCount) windows"
-        case .frozen: return "On hold: \(status.detail)"
-        case .restoring: return "Restoring windows…"
-        case .paused: return "Paused"
+        case .starting: "Starting…"
+        case .inactive: "Idle: no external displays"
+        case .tracking: "Tracking \(status.windowCount) windows"
+        case .frozen: "On hold: \(status.detail)"
+        case .restoring: "Restoring windows…"
+        case .paused: "Paused"
         }
     }
 
@@ -83,7 +95,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             relative.unitsStyle = .short
             menu.addItem(disabled("Last saved: \(relative.localizedString(for: save, relativeTo: Date()))"))
         }
-        if let restore = status.lastRestore { menu.addItem(disabled("Last restore: \(restore)")) }
+        if let restore = status.lastRestore {
+            menu.addItem(disabled("Last restore: \(restore)"))
+        }
         if status.pending > 0 {
             menu.addItem(disabled("\(status.pending) windows will be restored when you visit their Space"))
         }
@@ -97,12 +111,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         menu.addItem(.separator())
         let restore = item("Restore Windows Now", #selector(restoreNow))
-        restore.keyEquivalent = "r"
-        restore.keyEquivalentModifierMask = [.control, .option, .command]
+        applyShortcut(Settings.restoreHotKey, to: restore)
         menu.addItem(restore)
         let save = item("Save Positions Now", #selector(saveNow))
-        save.keyEquivalent = "s"
-        save.keyEquivalentModifierMask = [.control, .option, .command]
+        applyShortcut(Settings.saveHotKey, to: save)
         menu.addItem(save)
 
         menu.addItem(.separator())
@@ -122,7 +134,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         let profilesItem = NSMenuItem(title: "Saved Display Setups", action: nil, keyEquivalent: "")
         let profilesMenu = NSMenu()
-        if status.profiles.isEmpty { profilesMenu.addItem(disabled("None yet")) }
+        if status.profiles.isEmpty {
+            profilesMenu.addItem(disabled("None yet"))
+        }
         let formatter = DateFormatter()
         formatter.dateStyle = .short
         formatter.timeStyle = .short
@@ -143,7 +157,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(item("Show Log", #selector(openLog)))
 
         menu.addItem(.separator())
-        menu.addItem(item("Quit ManyDisplays", #selector(quit)))
+        menu.addItem(disabled("\(AppIdentity.name) \(AppIdentity.version)"))
+        if let updater {
+            let check = NSMenuItem(
+                title: "Check for Updates…",
+                action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+                keyEquivalent: ""
+            )
+            check.target = updater
+            menu.addItem(check)
+        }
+        menu.addItem(item("Quit \(AppIdentity.name)", #selector(quit)))
+    }
+
+    /// Shows the global shortcut next to the menu item (the Carbon hot key does the real work).
+    private func applyShortcut(_ spec: HotKeySpec?, to item: NSMenuItem) {
+        guard let spec else { return }
+        item.keyEquivalent = spec.key
+        var mask: NSEvent.ModifierFlags = []
+        if spec.modifiers & controlKey != 0 {
+            mask.insert(.control)
+        }
+        if spec.modifiers & optionKey != 0 {
+            mask.insert(.option)
+        }
+        if spec.modifiers & cmdKey != 0 {
+            mask.insert(.command)
+        }
+        if spec.modifiers & shiftKey != 0 {
+            mask.insert(.shift)
+        }
+        item.keyEquivalentModifierMask = mask
     }
 
     private func item(_ title: String, _ action: Selector) -> NSMenuItem {
@@ -158,11 +202,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item
     }
 
-    @objc private func restoreNow() { Engine.shared.restoreNow() }
-    @objc private func saveNow() { Engine.shared.saveNow() }
-    @objc private func togglePause() { Engine.shared.setPaused(!Settings.paused) }
-    @objc private func toggleArrangement() { Settings.fixArrangement.toggle() }
-    @objc private func toggleBlur() { Settings.blurWhileRestoring.toggle() }
+    @objc private func restoreNow() {
+        Engine.shared.restoreNow()
+    }
+
+    @objc private func saveNow() {
+        Engine.shared.saveNow()
+    }
+
+    @objc private func togglePause() {
+        Engine.shared.setPaused(!Settings.paused)
+    }
+
+    @objc private func toggleArrangement() {
+        Settings.fixArrangement.toggle()
+    }
+
+    @objc private func toggleBlur() {
+        Settings.blurWhileRestoring.toggle()
+    }
 
     @objc private func toggleLogin() {
         do {
@@ -188,7 +246,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc private func openData() { NSWorkspace.shared.open(LayoutStore.directory) }
-    @objc private func openLog() { NSWorkspace.shared.open(Log.url) }
-    @objc private func quit() { NSApp.terminate(nil) }
+    @objc private func openData() {
+        NSWorkspace.shared.open(LayoutStore.directory)
+    }
+
+    @objc private func openLog() {
+        NSWorkspace.shared.open(Log.url)
+    }
+
+    @objc private func quit() {
+        NSApp.terminate(nil)
+    }
 }

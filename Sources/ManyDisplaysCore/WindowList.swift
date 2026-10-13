@@ -8,22 +8,26 @@ struct SpaceTopology {
     var types: [UInt64: Int] = [:]
     var active: Set<UInt64> = []
 
-    func index(of space: UInt64) -> Int? { ordered.firstIndex(of: space) }
+    func index(of space: UInt64) -> Int? {
+        ordered.firstIndex(of: space)
+    }
 
     func space(at index: Int?) -> UInt64? {
         guard let index, ordered.indices.contains(index) else { return nil }
         return ordered[index]
     }
 
-    var desktopCount: Int { types.values.filter { $0 == 0 }.count }
+    var desktopCount: Int {
+        types.values.filter { $0 == 0 }.count
+    }
 }
 
 enum Spaces {
-    static let connection = CGSMainConnectionID()
+    static let connection = PrivateAPI.CGSMainConnectionID()
 
     static func topology() -> SpaceTopology {
         var topo = SpaceTopology()
-        guard let displays = CGSCopyManagedDisplaySpaces(connection) as? [[String: Any]] else { return topo }
+        guard let displays = PrivateAPI.CGSCopyManagedDisplaySpaces(connection) as? [[String: Any]] else { return topo }
         for display in displays {
             if let current = display["Current Space"] as? [String: Any], let id = spaceID(current) {
                 topo.active.insert(id)
@@ -39,7 +43,7 @@ enum Spaces {
 
     static func spaces(for window: CGWindowID) -> [UInt64] {
         let ids = [NSNumber(value: window)] as CFArray
-        guard let result = CGSCopySpacesForWindows(connection, 0x7, ids) as? [NSNumber] else { return [] }
+        guard let result = PrivateAPI.CGSCopySpacesForWindows(connection, 0x7, ids) as? [NSNumber] else { return [] }
         return result.map(\.uint64Value)
     }
 
@@ -67,15 +71,20 @@ struct WindowCapture {
 }
 
 enum WindowList {
-    private static let excludedOwners: Set<String> = [
-        "Window Server", "Dock", "Control Center", "Notification Center", "Spotlight",
-        "WindowManager", "SystemUIServer", "Wallpaper", "loginwindow", "screencaptureui",
-        "TextInputMenuAgent", "Centro de control", "Centro de notificaciones",
+    /// System processes whose layer-0 windows are not user windows (menu bar extras, the Dock,
+    /// Spotlight, the wallpaper...). Matched by bundle identifier so it works in every language.
+    static let excludedBundleIDs: Set<String> = [
+        "com.apple.dock", "com.apple.controlcenter", "com.apple.notificationcenterui",
+        "com.apple.Spotlight", "com.apple.WindowManager", "com.apple.systemuiserver",
+        "com.apple.wallpaper.agent", "com.apple.loginwindow", "com.apple.screencaptureui",
+        "com.apple.TextInputMenuAgent", "com.apple.PowerChime", "com.apple.UniversalControl",
     ]
+    /// Fallback for processes without a bundle (the window server itself).
+    private static let excludedOwners: Set<String> = ["Window Server", "WindowServer"]
 
     /// One CGWindowList call plus one tiny space query per normal window. ~10-30 ms for
     /// hundreds of windows, no Accessibility round-trips, so it can run often.
-    static func capture(topology: SpaceTopology, ownPID: pid_t) -> WindowCapture {
+    static func capture(topology: SpaceTopology, ownPID: pid_t, apps: AppInfoCache) -> WindowCapture {
         var result = WindowCapture()
         guard let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] else { return result }
@@ -94,10 +103,17 @@ enum WindowList {
             else { continue }
 
             let owner = info[kCGWindowOwnerName as String] as? String ?? ""
-            if excludedOwners.contains(owner) { continue }
+            if excludedOwners.contains(owner) {
+                continue
+            }
+            if let bundleID = apps.info(pid).bundleID, excludedBundleIDs.contains(bundleID) {
+                continue
+            }
 
             let spaces = Spaces.spaces(for: id).filter { topology.types[$0] != nil }
-            if spaces.isEmpty { continue }
+            if spaces.isEmpty {
+                continue
+            }
 
             let title = (info[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let window = LiveWindow(id: id, pid: pid, ownerName: owner, title: title, frame: frame, spaces: spaces)
@@ -118,10 +134,14 @@ final class AppInfoCache {
     private var cache: [pid_t: Info] = [:]
 
     func info(_ pid: pid_t) -> Info {
-        if let hit = cache[pid] { return hit }
+        if let hit = cache[pid] {
+            return hit
+        }
         let app = NSRunningApplication(processIdentifier: pid)
         let info = Info(bundleID: app?.bundleIdentifier, name: app?.localizedName)
-        if cache.count > 400 { cache.removeAll() }
+        if cache.count > 400 {
+            cache.removeAll()
+        }
         cache[pid] = info
         return info
     }

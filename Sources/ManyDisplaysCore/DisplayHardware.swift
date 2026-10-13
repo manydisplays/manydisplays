@@ -16,7 +16,8 @@ enum DisplayPorts {
     /// when the framebuffer's EDID serial/product match the display, so a wrong guess is ignored.
     static func portIDs(for ids: [CGDirectDisplayID]) -> [CGDirectDisplayID: Int] {
         var iterator: io_iterator_t = 0
-        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOMobileFramebufferShim"), &iterator) == KERN_SUCCESS else {
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOMobileFramebufferShim"), &iterator) ==
+            KERN_SUCCESS else {
             return [:]
         }
         defer { IOObjectRelease(iterator) }
@@ -55,9 +56,8 @@ enum DisplayPorts {
 /// Rotation and HDR through the private MonitorPanel framework (what System Settings uses).
 /// Reading costs ~25 ms, so callers cache the result.
 enum DisplayPanel {
-    private static let loaded: Bool = {
-        dlopen("/System/Library/PrivateFrameworks/MonitorPanel.framework/MonitorPanel", RTLD_NOW) != nil
-    }()
+    private static let loaded: Bool = dlopen("/System/Library/PrivateFrameworks/MonitorPanel.framework/MonitorPanel", RTLD_NOW) !=
+        nil
 
     private static func displays() -> [CGDirectDisplayID: NSObject] {
         guard loaded, let managerClass = NSClassFromString("MPDisplayMgr") as? NSObject.Type else { return [:] }
@@ -65,7 +65,9 @@ enum DisplayPanel {
         guard let list = manager.value(forKey: "displays") as? [NSObject] else { return [:] }
         var result: [CGDirectDisplayID: NSObject] = [:]
         for display in list {
-            if let id = (display.value(forKey: "displayID") as? NSNumber)?.uint32Value { result[id] = display }
+            if let id = (display.value(forKey: "displayID") as? NSNumber)?.uint32Value {
+                result[id] = display
+            }
         }
         return result
     }

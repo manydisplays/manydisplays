@@ -25,8 +25,6 @@ struct Layout: Codable, Equatable {
     var windows: [String: WindowRecord] = [:]
     var bootSession: String = Boot.session
     var updatedAt = Date()
-
-    init(profileID: String) { self.profileID = profileID }
 }
 
 /// Persists every layout in ~/Library/Application Support/ManyDisplays/layouts.json.
@@ -54,11 +52,16 @@ final class LayoutStore {
             layouts = try decoder.decode(FileFormat.self, from: data).layouts
         } catch {
             Log.info("Could not read layouts.json (\(error)); kept a copy and starting fresh")
-            try? FileManager.default.copyItem(at: url, to: url.appendingPathExtension("corrupt-\(Int(Date().timeIntervalSince1970))"))
+            try? FileManager.default.copyItem(
+                at: url,
+                to: url.appendingPathExtension("corrupt-\(Int(Date().timeIntervalSince1970))")
+            )
         }
     }
 
-    func layout(_ profileID: String) -> Layout? { layouts[profileID] }
+    func layout(_ profileID: String) -> Layout? {
+        layouts[profileID]
+    }
 
     /// Returns true if the layout changed.
     @discardableResult

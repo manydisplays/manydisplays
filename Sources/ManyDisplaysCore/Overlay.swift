@@ -21,7 +21,9 @@ final class RestoreOverlay: NSObject {
     private var timer: Timer?
     private var shownAt = Date()
     private var estimate: TimeInterval = 3
-    private var expired: Bool { Date().timeIntervalSince(shownAt) >= estimate }
+    private var expired: Bool {
+        Date().timeIntervalSince(shownAt) >= estimate
+    }
 
     func show(estimate: TimeInterval = 3) {
         // Only with external monitors: on the MacBook alone the app never restores anything.
@@ -60,7 +62,9 @@ final class RestoreOverlay: NSObject {
         let remaining = estimate - Date().timeIntervalSince(shownAt)
         if remaining > 0 {
             let text = "\(Int(remaining.rounded(.up)))"
-            for s in screens where s.number.stringValue != text { s.number.stringValue = text }
+            for s in screens where s.number.stringValue != text {
+                s.number.stringValue = text
+            }
         } else {
             // Taking longer than usual: let the user get their screen back.
             for s in screens where s.close.isHidden {
@@ -100,12 +104,12 @@ final class RestoreOverlay: NSObject {
         guard !screens.isEmpty else { return }
         let closing = screens.map(\.window)
         screens.removeAll()
-        NSAnimationContext.runAnimationGroup({ context in
+        NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.5
             closing.forEach { $0.animator().alphaValue = 0 }
-        }, completionHandler: {
+        } completionHandler: {
             closing.forEach { $0.orderOut(nil) }
-        })
+        }
     }
 
     private func makeContent(in window: NSWindow, size: NSSize) -> Screen {

@@ -25,19 +25,31 @@ final class AXHub {
     func start() {
         guard !running, AX.isTrusted else { return }
         running = true
-        for app in NSWorkspace.shared.runningApplications { add(app) }
+        for app in NSWorkspace.shared.runningApplications {
+            add(app)
+        }
         let center = NSWorkspace.shared.notificationCenter
         workspaceTokens = [
-            center.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] note in
-                guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-                self?.add(app)
-                Engine.shared.windowEvent()
-            },
-            center.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] note in
-                guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-                self?.remove(app.processIdentifier)
-                Engine.shared.windowEvent()
-            },
+            center
+                .addObserver(
+                    forName: NSWorkspace.didLaunchApplicationNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] note in
+                    guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+                    self?.add(app)
+                    Engine.shared.windowEvent()
+                },
+            center
+                .addObserver(
+                    forName: NSWorkspace.didTerminateApplicationNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] note in
+                    guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+                    self?.remove(app.processIdentifier)
+                    Engine.shared.windowEvent()
+                },
         ]
         Log.info("Observing \(observers.count) apps")
     }
@@ -47,7 +59,9 @@ final class AXHub {
         running = false
         workspaceTokens.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         workspaceTokens.removeAll()
-        for pid in Array(observers.keys) { remove(pid) }
+        for pid in Array(observers.keys) {
+            remove(pid)
+        }
     }
 
     private func add(_ app: NSRunningApplication, attempt: Int = 0) {
@@ -60,7 +74,9 @@ final class AXHub {
         let element = AX.application(pid, timeout: 0.3)
         var registered = false
         for name in Self.appNotifications {
-            if AXObserverAddNotification(observer, element, name as CFString, nil) == .success { registered = true }
+            if AXObserverAddNotification(observer, element, name as CFString, nil) == .success {
+                registered = true
+            }
         }
         guard registered else {
             // Freshly launched apps are often not ready for AX yet.
@@ -84,7 +100,7 @@ final class AXHub {
         CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
     }
 
-    fileprivate func observeWindow(_ window: AXUIElement, observer: AXObserver) {
+    private func observeWindow(_ window: AXUIElement, observer: AXObserver) {
         for name in Self.windowNotifications {
             AXObserverAddNotification(observer, window, name as CFString, nil)
         }
@@ -110,10 +126,13 @@ private let axCallback: AXObserverCallback = { observer, element, notification, 
     AXHub.shared.handle(observer: observer, element: element, notification: notification as String)
 }
 
+/// Commands the command-line flags send to the running instance. Distributed notifications
+/// can be posted by any process of the same user; the commands carry no payload and only do
+/// what the menu does, so the worst a rogue process can do is trigger a save or a restore.
 enum RemoteCommand {
-    static let save = Notification.Name("com.martinacuna.manydisplays.save")
-    static let restore = Notification.Name("com.martinacuna.manydisplays.restore")
-    static let previewOverlay = Notification.Name("com.martinacuna.manydisplays.previewOverlay")
+    static let save = Notification.Name(AppIdentity.bundleID + ".save")
+    static let restore = Notification.Name(AppIdentity.bundleID + ".restore")
+    static let previewOverlay = Notification.Name(AppIdentity.bundleID + ".previewOverlay")
 }
 
 /// System-wide signals: display reconfiguration, sleep/wake, lock/unlock, space changes.
@@ -173,15 +192,20 @@ final class HotKeys {
     private var refs: [EventHotKeyRef] = []
     private var installed = false
 
-    func register(keyCode: Int, modifiers: Int, _ handler: @escaping () -> Void) {
-        if !installed { install() }
+    func register(_ spec: HotKeySpec, _ handler: @escaping () -> Void) {
+        if !installed {
+            install()
+        }
         let id = UInt32(handlers.count + 1)
         handlers[id] = handler
         var ref: EventHotKeyRef?
         let hotKeyID = EventHotKeyID(signature: OSType(0x4D44_5350), id: id)
-        if RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), hotKeyID, GetApplicationEventTarget(), 0, &ref) == noErr,
-           let ref {
+        if RegisterEventHotKey(UInt32(spec.keyCode), UInt32(spec.modifiers), hotKeyID, GetApplicationEventTarget(), 0, &ref) ==
+            noErr,
+            let ref {
             refs.append(ref)
+        } else {
+            Log.info("Could not register the global shortcut (already taken by another app?)")
         }
     }
 
@@ -190,8 +214,15 @@ final class HotKeys {
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
             var hotKeyID = EventHotKeyID()
-            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
-                              nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
+            GetEventParameter(
+                event,
+                EventParamName(kEventParamDirectObject),
+                EventParamType(typeEventHotKeyID),
+                nil,
+                MemoryLayout<EventHotKeyID>.size,
+                nil,
+                &hotKeyID
+            )
             HotKeys.shared.handlers[hotKeyID.id]?()
             return noErr
         }, 1, &spec, nil, nil)

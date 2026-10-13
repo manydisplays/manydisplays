@@ -1,9 +1,23 @@
 import AppKit
 import os
 
+/// Identifiers shared by the app, its log, its queues and its command-line commands.
+enum AppIdentity {
+    static let bundleID = "com.manydisplays.ManyDisplays"
+    static let name = "Many Displays"
+    static var version: String {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        return build.map { "\(short) (\($0))" } ?? short
+    }
+}
+
 enum Log {
-    private static let logger = Logger(subsystem: "com.martinacuna.manydisplays", category: "app")
-    private static let queue = DispatchQueue(label: "com.martinacuna.manydisplays.log", qos: .background)
+    private static let logger = Logger(subsystem: AppIdentity.bundleID, category: "app")
+    private static let queue = DispatchQueue(label: AppIdentity.bundleID + ".log", qos: .background)
+    /// Kept open between lines; reopened after rotation.
+    private static var handle: FileHandle?
+    private static var linesSinceSizeCheck = 0
     private static let formatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
@@ -20,21 +34,32 @@ enum Log {
         logger.info("\(message, privacy: .public)")
         let line = "[\(formatter.string(from: Date()))] \(message)\n"
         queue.async {
-            let fm = FileManager.default
-            if let size = (try? fm.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue, size > 1_000_000 {
-                let old = url.deletingPathExtension().appendingPathExtension("old.log")
-                try? fm.removeItem(at: old)
-                try? fm.moveItem(at: url, to: old)
-            }
+            rotateIfNeeded()
             guard let data = line.data(using: .utf8) else { return }
-            if let handle = try? FileHandle(forWritingTo: url) {
-                handle.seekToEndOfFile()
-                handle.write(data)
-                try? handle.close()
-            } else {
-                try? data.write(to: url)
+            if handle == nil {
+                if !FileManager.default.fileExists(atPath: url.path) {
+                    try? Data().write(to: url)
+                }
+                handle = try? FileHandle(forWritingTo: url)
+                handle?.seekToEndOfFile()
             }
+            handle?.write(data)
         }
+    }
+
+    /// Keeps the file around 1 MB: the previous log is kept as ManyDisplays.old.log.
+    private static func rotateIfNeeded() {
+        linesSinceSizeCheck += 1
+        guard linesSinceSizeCheck >= 200 || handle == nil else { return }
+        linesSinceSizeCheck = 0
+        let fm = FileManager.default
+        guard let size = (try? fm.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue,
+              size > 1_000_000 else { return }
+        try? handle?.close()
+        handle = nil
+        let old = url.deletingPathExtension().appendingPathExtension("old.log")
+        try? fm.removeItem(at: old)
+        try? fm.moveItem(at: url, to: old)
     }
 }
 
@@ -61,6 +86,27 @@ enum Settings {
         get { defaults.bool(forKey: "paused") }
         set { defaults.set(newValue, forKey: "paused") }
     }
+
+    /// Global shortcuts, as text ("ctrl+alt+cmd+r"). Set to an empty string to disable one.
+    static var restoreHotKey: HotKeySpec? {
+        hotKey("restoreHotKey", default: "ctrl+alt+cmd+r")
+    }
+
+    static var saveHotKey: HotKeySpec? {
+        hotKey("saveHotKey", default: "ctrl+alt+cmd+s")
+    }
+
+    private static func hotKey(_ key: String, default fallback: String) -> HotKeySpec? {
+        guard let text = defaults.string(forKey: key) else { return HotKeySpec(fallback) }
+        if text.isEmpty {
+            return nil
+        }
+        guard let spec = HotKeySpec(text) else {
+            Log.info("Ignoring invalid shortcut for \(key): \"\(text)\" (expected e.g. ctrl+alt+cmd+r)")
+            return HotKeySpec(fallback)
+        }
+        return spec
+    }
 }
 
 /// When the user last clicked, dragged or used a keyboard shortcut. Window changes that follow
@@ -77,7 +123,9 @@ enum UserInput {
             .leftMouseDown, .leftMouseDragged, .rightMouseDown, .otherMouseDown, .keyDown,
         ]) { event in
             if event.type == .keyDown,
-               event.modifierFlags.intersection([.command, .control, .option]).isEmpty { return }
+               event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+                return
+            }
             mark()
         }
     }
