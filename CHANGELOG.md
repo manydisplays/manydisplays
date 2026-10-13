@@ -5,6 +5,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Settings → Reset Settings to Defaults… (keeps the licence, the saved layouts and the login item).
+
 ### Fixed
 - Chrome's small helper strips are no longer saved, so they never show up as "windows will be restored when you visit their Space".
 - "Save Current Layout" no longer puts windows back to their previously restored position (the post-restore drift guard is cleared by a manual save), so saving never moves or resizes anything.

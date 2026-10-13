@@ -183,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         menu.addItem(login)
         menu.addItem(.separator())
         menu.addItem(item("Keyboard Shortcuts…", #selector(showShortcuts), symbol: "keyboard"))
+        menu.addItem(item("Reset Settings to Defaults…", #selector(resetSettings), symbol: "arrow.uturn.backward"))
         return menu
     }
 
@@ -285,6 +286,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         item.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(paletteColors: [colour]))
         return item
+    }
+
+    @objc private func resetSettings() {
+        let alert = NSAlert()
+        alert.messageText = "Reset settings to defaults?"
+        alert.informativeText = "Automatic restore, display fixes and the blur go back on, tracking resumes, and the shortcuts return to ⌃⌥⌘R. Your licence, saved layouts and the login item are kept."
+        alert.addButton(withTitle: "Reset")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let wasPaused = Settings.paused
+        Settings.resetToDefaults()
+        HotKeys.reloadFromSettings()
+        if wasPaused {
+            Engine.shared.setPaused(false)
+        }
+        Log.info("Settings reset to defaults")
+        updateIcon()
     }
 
     @objc private func showShortcuts() {
