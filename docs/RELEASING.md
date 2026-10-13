@@ -29,7 +29,17 @@ This produces `build/ManyDisplays-1.1.0.dmg`, notarized and stapled. Then:
 .build/artifacts/sparkle/Sparkle/bin/sign_update build/ManyDisplays-1.1.0.dmg   # prints the appcast attributes
 ```
 
-Add an `<item>` to `appcast.xml` with the version, the DMG URL, the `sparkle:edSignature` and
-`length` printed above, and upload both the DMG and the appcast to manydisplays.com.
+Publish the GitHub release. The website links `releases/latest/download/ManyDisplays.dmg`, so the
+asset must be uploaded under that fixed name (the versioned name is kept as a second asset):
+
+```bash
+cp build/ManyDisplays-1.1.0.dmg build/ManyDisplays.dmg
+gh release create v1.1.0 build/ManyDisplays.dmg build/ManyDisplays-1.1.0.dmg --title "Many Displays 1.1.0" --notes-file <(sed -n '/^## \[1.1.0\]/,/^## \[/p' CHANGELOG.md | sed '$d')
+```
+
+Then add an `<item>` to `appcast.xml` in the website repo (local checkout at
+`../many-displays-website`) with the version, the URL of the versioned DMG, the
+`sparkle:edSignature` and `length` printed by `sign_update`, and push it: GitHub Pages serves
+https://manydisplays.com/appcast.xml.
 
 Update `CHANGELOG.md` before tagging; the release notes can point at it.
