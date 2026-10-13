@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
             updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
         }
         Licensing.shared.onChange = { [weak self] in self?.updateIcon() }
+        installEditMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         menu.delegate = self
         statusItem.menu = menu
@@ -44,6 +45,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
 
     func applicationWillTerminate(_ notification: Notification) {
         Engine.shared.flushSync()
+    }
+
+    /// A menu bar app has no main menu, so ⌘C/⌘V/⌘A would not reach its text fields (the licence
+    /// window) without this invisible Edit menu.
+    private func installEditMenu() {
+        let main = NSMenu()
+        let edit = NSMenuItem()
+        main.addItem(edit)
+        let menu = NSMenu(title: "Edit")
+        menu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        menu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        menu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        menu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        menu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.submenu = menu
+        NSApp.mainMenu = main
     }
 
     // MARK: - Status item

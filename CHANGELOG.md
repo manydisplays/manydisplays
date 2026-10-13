@@ -5,6 +5,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- ⌘V, ⌘C and ⌘A work in the licence window (menu bar apps need an Edit menu for that).
+
 ## [1.1.2] - 2026-10-14
 
 ### Added
