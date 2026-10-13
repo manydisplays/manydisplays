@@ -3,7 +3,7 @@ import Carbon
 import ServiceManagement
 import Sparkle
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpdaterDelegate {
     private var statusItem: NSStatusItem!
     private let menu = NSMenu()
     private var trustTimer: Timer?
@@ -13,8 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         if Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil,
            Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") != nil {
-            updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+            updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
         }
+        Licensing.shared.onChange = { [weak self] in self?.updateIcon() }
+        Licensing.shared.revalidateIfDue()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         menu.delegate = self
         statusItem.menu = menu
@@ -108,6 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(.separator())
             menu.addItem(item("Grant Accessibility Permission…", #selector(openAccessibility)))
         }
+        addLicenseItems(to: menu)
 
         menu.addItem(.separator())
         let restore = item("Restore Windows Now", #selector(restoreNow))
@@ -168,6 +171,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(check)
         }
         menu.addItem(item("Quit \(AppIdentity.name)", #selector(quit)))
+    }
+
+    private func addLicenseItems(to menu: NSMenu) {
+        let state = Licensing.shared.state
+        guard state != .free else { return }
+        menu.addItem(.separator())
+        switch state {
+        case .free: break
+        case let .trial(days):
+            menu.addItem(disabled("Trial: \(days) day\(days == 1 ? "" : "s") left"))
+            menu.addItem(item("Buy \(AppIdentity.name)…", #selector(buy)))
+            menu.addItem(item("Enter Licence…", #selector(enterLicense)))
+        case .trialExpired:
+            menu.addItem(disabled("⚠︎ Trial over: windows are not restored"))
+            menu.addItem(item("Buy \(AppIdentity.name)…", #selector(buy)))
+            menu.addItem(item("Enter Licence…", #selector(enterLicense)))
+        case let .licensed(key):
+            menu.addItem(disabled(key.email.map { "Licensed to \($0)" } ?? "Licensed"))
+            menu.addItem(item("Licence…", #selector(enterLicense)))
+        case .updatesExpired:
+            menu.addItem(disabled("⚠︎ This version is not covered by your licence"))
+            menu.addItem(item("Renew Licence…", #selector(buy)))
+            menu.addItem(item("Licence…", #selector(enterLicense)))
+        }
+    }
+
+    @objc private func buy() {
+        NSWorkspace.shared.open(Licensing.buyURL)
+    }
+
+    @objc private func enterLicense() {
+        LicenseWindow.shared.show()
+    }
+
+    // MARK: - Sparkle
+
+    /// Updates published after the licence's update window are not offered; the current
+    /// version keeps working.
+    func updater(_ updater: SPUUpdater, shouldProceedWithUpdate updateItem: SUAppcastItem, updateCheck: SPUUpdateCheck) throws {
+        guard Licensing.shared.required, let key = Licensing.shared.key, let until = key.updatesUntil,
+              let published = updateItem.date, published > until else { return }
+        throw NSError(domain: AppIdentity.bundleID, code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "Version \(updateItem.displayVersionString) was released after your licence's update window (\(Licensing.string(until))). Renew your licence to get it.",
+        ])
     }
 
     /// Shows the global shortcut next to the menu item (the Carbon hot key does the real work).

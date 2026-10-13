@@ -50,6 +50,11 @@ install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS
 PLIST="$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :MDBuildDate string $(date -u +%Y-%m-%d)" "$PLIST"
+if $DMG; then
+    # Only the distributed build asks for a licence; builds from source run free.
+    /usr/libexec/PlistBuddy -c "Add :MDRequiresLicense bool true" "$PLIST"
+fi
 if $DMG || [[ "${SPARKLE:-0}" == "1" ]]; then
     /usr/libexec/PlistBuddy -c "Add :SUFeedURL string $SPARKLE_FEED_URL" "$PLIST"
     /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $SPARKLE_PUBLIC_KEY" "$PLIST"

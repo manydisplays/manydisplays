@@ -100,6 +100,8 @@ final class Engine {
     private var lastSave: Date?
     private var lastRestore: String?
     private var spaceMismatches = 0
+    /// The licence window is shown at most once per launch when a restore is refused.
+    private var licenseNagShown = false
 
     private let statusLock = NSLock()
     private var _status = Status()
@@ -202,7 +204,8 @@ final class Engine {
                 let calm = Date().timeIntervalSince(self.lastReconfigAt) > Tuning.displaySettle
                 let delay: TimeInterval = calm ? 0.3 : 1.5
                 // Veil the screens right away if windows are visibly out of place.
-                if Settings.blurWhileRestoring, !Settings.paused, self.overlayShownAt == nil, self.visibleWindowsLookMoved() {
+                if Settings.blurWhileRestoring, !Settings.paused, self.overlayShownAt == nil,
+                   Licensing.shared.state.allowsRestoring, self.visibleWindowsLookMoved() {
                     self.overlayShownAt = Date()
                     let estimate = Settings.overlayDuration + delay
                     DispatchQueue.main.async { RestoreOverlay.shared.show(estimate: estimate) }
@@ -821,6 +824,19 @@ final class Engine {
         guard AX.isTrusted else {
             Log.info("No Accessibility permission: cannot move windows")
             lastRestore = "Accessibility permission missing"
+            beginTracking()
+            return
+        }
+
+        let licence = Licensing.shared.state
+        guard licence.allowsRestoring else {
+            Log.info("Restore skipped: licence needed (\(licence))")
+            lastRestore = "Licence needed (trial over)"
+            dropOverlay()
+            if !licenseNagShown || reason == "manual" {
+                licenseNagShown = true
+                DispatchQueue.main.async { LicenseWindow.shared.show() }
+            }
             beginTracking()
             return
         }
