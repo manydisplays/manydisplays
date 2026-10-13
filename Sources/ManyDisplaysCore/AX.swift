@@ -117,8 +117,13 @@ enum AX {
             return false
         }
         let first = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, position)
-        AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, dimensions)
+        let sized = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, dimensions)
         let second = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, position)
+        lastError = (first == .success || second == .success) && sized == .success ? nil
+            : "position=\(first.rawValue)/\(second.rawValue) size=\(sized.rawValue)"
         return first == .success || second == .success
     }
+
+    /// AXError codes of the last setFrame that did not fully succeed (for the log), on the engine queue.
+    nonisolated(unsafe) static var lastError: String?
 }

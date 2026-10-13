@@ -840,6 +840,8 @@ final class Engine {
         var failed: Set<CGWindowID> = []
         var spaceMismatches = 0
         var considered = 0
+        /// What happened to each window, for the log: "Finder 123 (10,20 800x600) -> (…)".
+        var details: [String] = []
     }
 
     private func startRestore(
@@ -902,6 +904,7 @@ final class Engine {
             overlayDone()
             var final = restorePass(layout: current, only: only, deep: true, overlay: false)
             final.moved += moved + result.moved
+            final.details = result.details + final.details
             finishRestore(final, layout: current, only: only, reason: reason)
         }
         runPass(0, moved: 0)
@@ -935,6 +938,9 @@ final class Engine {
         summary += String(format: " in %.1fs", Date().timeIntervalSince(restoreStartedAt))
         overlayDone()
         Log.info("Restore (\(reason)) \(summary); on another Space: \(result.spaceMismatches)")
+        if !result.details.isEmpty {
+            Log.info("Restore detail: " + result.details.prefix(12).joined(separator: "; "))
+        }
         if !stillOff.isEmpty {
             Log.info("Not in place yet (will retry on their desktop): \(describe(stillOff, in: layout))")
         }
@@ -1130,15 +1136,21 @@ final class Engine {
                 if let current = AX.frame(element), current.matches(target) {
                     continue
                 } // only looked off (animation)
+                let name = layout.windows[String(id)]?.appName ?? "?"
+                let from = capture.byID[id].map { rect($0.frame) } ?? "?"
                 if AX.setFrame(element, app: app, to: target) {
                     result.moved += 1
                     knownUnreachable.remove(id)
+                    let now = AX.frame(element).map(rect) ?? "?"
+                    result.details
+                        .append("\(name) \(id) \(from) -> \(rect(target)) now \(now)\(AX.lastError.map { " [\($0)]" } ?? "")")
                     if let live = capture.byID[id], Set(live.spaces).isDisjoint(with: topology.active) {
                         offSpaceWatch[id] = Watch(since: Date())
                     }
                 } else {
                     axElements.removeValue(forKey: id)
                     result.failed.insert(id)
+                    result.details.append("\(name) \(id) REFUSED \(from) -> \(rect(target)) [\(AX.lastError ?? "?")]")
                 }
             }
         }
