@@ -56,6 +56,8 @@ final class Engine {
     private var firstEvaluation = true
     /// Launched behind the lock screen (e.g. updated while away): restore normally on unlock.
     private var startedLocked = false
+    /// `--restore-on-launch`: put windows back right away instead of just starting to track.
+    var restoreOnLaunch = CommandLine.arguments.contains("--restore-on-launch")
     private var activeProfileID: String?
     /// Windows whose restore failed (e.g. the app refused); their saved position is protected
     /// from being overwritten until they are restored or the protection expires.
@@ -332,9 +334,12 @@ final class Engine {
     }
 
     /// Takes a final snapshot right before the system starts moving things around.
+    /// Called on lock/sleep. Deliberately does NOT take a snapshot: at that instant macOS is
+    /// already animating (the lock screen shrinks windows), so a snapshot would record fake
+    /// frames. Snapshots run continuously, so the last one is recent and correct.
     private func checkpoint() {
-        guard mode == .tracking else { return }
-        snapshot()
+        snapshotWork?.cancel()
+        snapshotWork = nil
         store.flush()
     }
 
@@ -412,7 +417,7 @@ final class Engine {
             // Re-link windows that changed id and only restore those.
             let rebound = rebindDeadRecords(profile: profile)
             if !rebound.isEmpty { Log.info("Re-linked \(rebound.count) windows after restart") }
-            if !startedLocked {
+            if !startedLocked && !restoreOnLaunch {
                 if rebound.isEmpty {
                     beginTracking()
                 } else {
@@ -422,6 +427,7 @@ final class Engine {
                 return
             }
             startedLocked = false
+            restoreOnLaunch = false
             startRestore(layout: store.layout(profile) ?? layout, displays: displays, reason: reason,
                          allowArrangement: true)
             return
@@ -614,6 +620,9 @@ final class Engine {
                     if let real = axFrame(of: window) {
                         guard real.matches(frame) else { continue } // Mission Control / swipe in progress
                         frame = real
+                    } else if (userMovedAt[window.id] ?? .distantPast) < now.addingTimeInterval(-30),
+                              !UserInput.happened(within: 5) {
+                        continue // cannot confirm with the app and nobody touched anything: ignore
                     }
                 }
             } else if onActiveDesktop, let real = axFrame(of: window) {
