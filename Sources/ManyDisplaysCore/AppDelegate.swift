@@ -80,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         let status = Engine.shared.status
 
         // What matters right now: state, anything the user must act on, and the trial.
-        menu.addItem(disabled(describe(status)))
+        menu.addItem(statusLine(status))
         if status.pending > 0 {
             menu.addItem(disabled("\(status.pending) windows will be restored when you visit their Space"))
         }
@@ -88,25 +88,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
             menu.addItem(disabled("⚠︎ \(status.spaceMismatches) windows are on a different Space"))
         }
         if !AX.isTrusted {
-            menu.addItem(item("Grant Accessibility Permission…", #selector(openAccessibility)))
+            menu.addItem(item("Grant Accessibility Permission…", #selector(openAccessibility), symbol: "lock.open"))
         }
         addTrialItems(to: menu)
 
         menu.addItem(.separator())
-        let restore = item("Restore Windows Now", #selector(restoreNow))
+        let restore = item("Restore Windows Now", #selector(restoreNow), symbol: "arrow.counterclockwise")
         applyShortcut(Settings.restoreHotKey, to: restore)
         menu.addItem(restore)
-        let save = item("Save Positions Now", #selector(saveNow))
+        let save = item("Save Positions Now", #selector(saveNow), symbol: "square.and.arrow.down")
         applyShortcut(Settings.saveHotKey, to: save)
         menu.addItem(save)
-        let pause = item("Pause Tracking", #selector(togglePause))
-        pause.state = Settings.paused ? .on : .off
+        let pause = item(
+            Settings.paused ? "Resume Tracking" : "Pause Tracking",
+            #selector(togglePause),
+            symbol: Settings.paused ? "play.fill" : "pause.fill"
+        )
         menu.addItem(pause)
 
         menu.addItem(.separator())
-        menu.addItem(submenu("Saved Display Setups", savedSetupsMenu(status)))
-        menu.addItem(submenu("Settings", settingsMenu()))
-        menu.addItem(submenu("Help", helpMenu(status)))
+        menu.addItem(submenu("Saved Display Setups", savedSetupsMenu(status), symbol: "display.2"))
+        menu.addItem(submenu("Settings", settingsMenu(), symbol: "gearshape"))
+        menu.addItem(submenu("Help", helpMenu(status), symbol: "questionmark.circle"))
         if let updater {
             let check = NSMenuItem(
                 title: "Check for Updates…",
@@ -114,12 +117,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
                 keyEquivalent: ""
             )
             check.target = updater
+            check.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
             menu.addItem(check)
         }
 
         menu.addItem(.separator())
-        menu.addItem(item("About \(AppIdentity.name)…", #selector(openWebsite)))
-        menu.addItem(item("Quit \(AppIdentity.name)", #selector(quit)))
+        menu.addItem(item("About \(AppIdentity.name)…", #selector(openWebsite), symbol: "info.circle"))
+        menu.addItem(item("Quit \(AppIdentity.name)", #selector(quit), symbol: "power"))
     }
 
     /// Trial and licence prompts stay at the top until the app is licensed.
@@ -129,18 +133,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         case let .trial(days):
             menu.addItem(.separator())
             menu.addItem(disabled("Trial: \(days) day\(days == 1 ? "" : "s") left"))
-            menu.addItem(item("Buy \(AppIdentity.name)…", #selector(buy)))
-            menu.addItem(item("Enter Licence…", #selector(enterLicense)))
+            menu.addItem(item("Buy \(AppIdentity.name)…", #selector(buy), symbol: "cart"))
+            menu.addItem(item("Enter Licence…", #selector(enterLicense), symbol: "key"))
         case .trialExpired:
             menu.addItem(.separator())
             menu.addItem(disabled("⚠︎ Trial over: windows are not restored"))
-            menu.addItem(item("Buy \(AppIdentity.name)…", #selector(buy)))
-            menu.addItem(item("Enter Licence…", #selector(enterLicense)))
+            menu.addItem(item("Buy \(AppIdentity.name)…", #selector(buy), symbol: "cart"))
+            menu.addItem(item("Enter Licence…", #selector(enterLicense), symbol: "key"))
         case .updatesExpired:
             menu.addItem(.separator())
             menu.addItem(disabled("⚠︎ This version is not covered by your licence"))
-            menu.addItem(item("Renew Licence…", #selector(buy)))
-            menu.addItem(item("Enter Licence…", #selector(enterLicense)))
+            menu.addItem(item("Renew Licence…", #selector(buy), symbol: "cart"))
+            menu.addItem(item("Enter Licence…", #selector(enterLicense), symbol: "key"))
         }
     }
 
@@ -187,9 +191,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         case .free: break
         case let .licensed(key):
             menu.addItem(disabled("Licensed to \(key.email)"))
-            menu.addItem(item("Licence…", #selector(enterLicense)))
+            menu.addItem(item("Licence…", #selector(enterLicense), symbol: "key"))
         default:
-            menu.addItem(item("Enter Licence…", #selector(enterLicense)))
+            menu.addItem(item("Enter Licence…", #selector(enterLicense), symbol: "key"))
         }
         menu.addItem(.separator())
         if let save = status.lastSave {
@@ -200,15 +204,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         if let restore = status.lastRestore {
             menu.addItem(disabled("Last restore: \(restore)"))
         }
-        menu.addItem(item("Support Website…", #selector(openSupport)))
-        menu.addItem(item("Show Log", #selector(openLog)))
-        menu.addItem(item("Open Data Folder", #selector(openData)))
+        menu.addItem(item("Support Website…", #selector(openSupport), symbol: "globe"))
+        menu.addItem(item("Show Log", #selector(openLog), symbol: "doc.text"))
+        menu.addItem(item("Open Data Folder", #selector(openData), symbol: "folder"))
         return menu
     }
 
-    private func submenu(_ title: String, _ menu: NSMenu) -> NSMenuItem {
+    private func submenu(_ title: String, _ menu: NSMenu, symbol: String) -> NSMenuItem {
         let entry = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         entry.submenu = menu
+        entry.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         return entry
     }
 
@@ -257,10 +262,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         item.keyEquivalentModifierMask = mask
     }
 
-    private func item(_ title: String, _ action: Selector) -> NSMenuItem {
+    private func item(_ title: String, _ action: Selector, symbol: String? = nil) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
+        if let symbol {
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        }
         return item
+    }
+
+    /// The status line: a coloured dot like Docker's, green while tracking.
+    private func statusLine(_ status: Engine.Status) -> NSMenuItem {
+        let item = disabled(describe(status))
+        let colour: NSColor = switch status.mode {
+        case .tracking: .systemGreen
+        case .restoring: .systemOrange
+        case .frozen, .starting: .systemYellow
+        case .inactive, .paused: .systemGray
+        }
+        item.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(paletteColors: [colour]))
+        return item
+    }
+
+    @objc private func openWebsite() {
+        NSWorkspace.shared.open(URL(string: "https://manydisplays.com")!)
     }
 
     private func disabled(_ title: String) -> NSMenuItem {
