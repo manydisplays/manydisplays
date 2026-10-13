@@ -104,6 +104,23 @@ enum Settings {
         hotKey("saveHotKey", default: "")
     }
 
+    /// Back to the defaults: automatic restore and display fixes on, blur on, tracking resumed,
+    /// standard shortcuts, learned overlay duration forgotten. Licence, saved layouts and the
+    /// login item are not touched.
+    static func resetToDefaults() {
+        for key in [
+            "autoRestore",
+            "fixArrangement",
+            "blurWhileRestoring",
+            "paused",
+            "overlayDuration",
+            "restoreHotKey",
+            "saveHotKey",
+        ] {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     static func setHotKey(_ key: String, text: String?) {
         if let text {
             defaults.set(text, forKey: key)
