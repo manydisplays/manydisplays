@@ -5,6 +5,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- "Restore Windows Now" and "Save Current Layout" work while tracking is paused; the pause only stops the automatic saving and restoring.
+
 ### Added
 - Settings → "Restore Windows Automatically" (on by default). Off, the app holds after a wake, unlock or reconnect without saving the shuffled layout, until "Restore Windows Now" or its shortcut.
 

@@ -262,10 +262,10 @@ final class Engine {
         }
     }
 
-    /// Manual save: the current window positions become the truth.
+    /// Manual save: the current window positions become the truth. Works while tracking is
+    /// paused too (the pause only stops the automatic saving and restoring).
     func saveNow() {
         queue.async {
-            guard !Settings.paused else { return }
             let displays = Displays.current()
             guard Displays.hasExternal(displays) else {
                 Log.info("Manual save ignored: no external displays")
@@ -273,18 +273,22 @@ final class Engine {
             }
             self.pending.removeAll()
             self.activeProfileID = Displays.profileID(displays)
-            if self.mode != .tracking {
-                self.beginTracking()
+            if Settings.paused {
+                self.snapshot(force: true)
+            } else {
+                if self.mode != .tracking {
+                    self.beginTracking()
+                }
+                self.snapshot()
             }
-            self.snapshot()
             self.store.flush()
             Log.info("Manual save")
         }
     }
 
+    /// Manual restore: puts the last saved layout back, paused or not.
     func restoreNow() {
         queue.async {
-            guard !Settings.paused else { return }
             let displays = Displays.current()
             guard Displays.hasExternal(displays) else { return }
             let profile = Displays.profileID(displays)
@@ -613,6 +617,12 @@ final class Engine {
         cycle += 1
         watchdogWork?.cancel()
         resetCycleFlags()
+        if Settings.paused {
+            // A manual restore while paused must not resume the automatic tracking.
+            stopTracking()
+            setMode(.paused, "paused by user")
+            return
+        }
         setMode(.tracking)
         DispatchQueue.main.async { AXHub.shared.start() }
         startHeartbeat()
@@ -651,8 +661,9 @@ final class Engine {
         queue.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    private func snapshot() {
-        guard mode == .tracking, let profile = activeProfileID else { return }
+    /// `force` takes the snapshot even while paused (manual save).
+    private func snapshot(force: Bool = false) {
+        guard mode == .tracking || force, let profile = activeProfileID else { return }
         let displays = Displays.current()
         guard Displays.profileID(displays) == profile else {
             // Displays changed under us without a callback yet: do not save a shuffled layout.
