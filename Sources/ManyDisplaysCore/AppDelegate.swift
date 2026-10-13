@@ -56,21 +56,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
     private func updateIcon() {
         guard let button = statusItem?.button else { return }
         let status = Engine.shared.status
-        let image: NSImage? = switch status.mode {
-        case .tracking: StatusIcon.displays(accessibilityDescription: AppIdentity.name)
-        case .restoring: symbol("arrow.triangle.2.circlepath")
-        case .frozen: symbol("moon.zzz")
-        case .paused: symbol("pause.rectangle")
-        case .inactive, .starting: symbol("laptopcomputer")
-        }
-        image?.isTemplate = true
-        button.image = image
+        // Always the app's face; the state is told by dimming (idle, paused) and by the tooltip/menu.
+        button.image = StatusIcon.displays(accessibilityDescription: "\(AppIdentity.name): \(describe(status))")
         button.appearsDisabled = status.mode == .inactive || status.mode == .paused
         button.toolTip = "\(AppIdentity.name): \(describe(status))"
-    }
-
-    private func symbol(_ name: String) -> NSImage? {
-        NSImage(systemSymbolName: name, accessibilityDescription: AppIdentity.name)
     }
 
     private func describe(_ status: Engine.Status) -> String {
