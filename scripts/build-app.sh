@@ -89,12 +89,15 @@ fi
 
 if $DMG; then
     DMG_PATH="build/ManyDisplays-$VERSION.dmg"
-    STAGE=build/dmg
-    rm -rf "$STAGE" "$DMG_PATH"
-    mkdir -p "$STAGE"
-    cp -R "$APP" "$STAGE/"
-    ln -s /Applications "$STAGE/Applications"
-    hdiutil create -volname "Many Displays" -srcfolder "$STAGE" -ov -format UDZO -quiet "$DMG_PATH"
+    rm -f "$DMG_PATH"
+    # dmgbuild writes the window layout (background, icon positions, no toolbar) straight into
+    # the image, without scripting Finder. It lives in a venv under .build/.
+    DMGBUILD=.build/dmgbuild-venv/bin/dmgbuild
+    if [[ ! -x "$DMGBUILD" ]]; then
+        python3 -m venv .build/dmgbuild-venv
+        .build/dmgbuild-venv/bin/pip install --quiet "dmgbuild==1.6.7"
+    fi
+    "$DMGBUILD" -s scripts/dmg-settings.py -D app="$APP" "Many Displays" "$DMG_PATH" >/dev/null
     "${SIGN[@]}" "$DMG_PATH"
     echo "Packaged $DMG_PATH"
     if $NOTARIZE; then
