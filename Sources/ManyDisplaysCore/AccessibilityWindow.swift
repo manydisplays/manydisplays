@@ -195,10 +195,14 @@ final class AccessibilityWindow: NSObject, NSWindowDelegate {
     }
 
     @objc private func primaryClicked() {
+        // The first click only triggers macOS's own prompt, which has its own "Open System
+        // Settings" button; opening the pane as well would leave that prompt behind it. Later
+        // clicks (no prompt: macOS asks once) open the pane directly.
         if look == .welcome {
             AX.promptForTrust()
+        } else {
+            NSWorkspace.shared.open(Self.settingsURL)
         }
-        NSWorkspace.shared.open(Self.settingsURL)
         refresh(.waiting)
     }
 
