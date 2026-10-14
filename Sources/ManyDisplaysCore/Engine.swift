@@ -711,6 +711,13 @@ final class Engine {
         pending = pending.filter { $0.value > now && capture.existing.contains($0.key) }
 
         var layout = store.layout(profile) ?? Layout(profileID: profile)
+        // Right after a restore, a snapshot taken while the user is clicking or dragging cannot tell
+        // the user's moves from macOS still nudging windows: wait a moment instead of saving either.
+        if now < guardUntil || !offSpaceWatch.isEmpty, !force,
+           NSEvent.pressedMouseButtons != 0 || UserInput.happened(within: 1.0) {
+            scheduleSnapshot(after: 2.0)
+            return
+        }
         let drifted = guardedDrift(layout: layout, capture: capture, displays: displays, topology: topology)
         let byKey = Dictionary(displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let savedDisplays = Dictionary(layout.displays.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
