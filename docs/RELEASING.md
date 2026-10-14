@@ -23,7 +23,10 @@ git tag v1.1.0 && git push --tags
 scripts/build-app.sh --notarize
 ```
 
-This produces `build/ManyDisplays-1.1.0.dmg`, notarized and stapled. Then:
+This produces `build/ManyDisplays-1.1.0.dmg`, notarized and stapled. The DMG window (background, icon positions) is
+built by [dmgbuild](https://dmgbuild.readthedocs.io), installed on first use in a venv under
+`.build/`; the background is `Resources/DMG/background.tiff`, drawn by
+`swift scripts/make-dmg-background.swift` (icon centres must match `scripts/dmg-settings.py`). Then:
 
 ```bash
 .build/artifacts/sparkle/Sparkle/bin/sign_update build/ManyDisplays-1.1.0.dmg   # prints the appcast attributes

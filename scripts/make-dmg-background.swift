@@ -1,8 +1,9 @@
 #!/usr/bin/env swift
 // Draws the DMG window background (Resources/DMG/background.tiff, 1x + 2x): navy like the
 // website's dark theme, the wordmark, an orange arrow from the app to Applications and a hint.
-// Finder draws the icon names white in Dark Mode and black in Light Mode, so each name sits on a
-// slate pill that reads in both. Icon centres must match scripts/dmg-settings.py.
+// Finder draws the icon names in black over a background picture (in Dark Mode too), so each
+// name sits on a light pill. Finder's status bar, when the user has it on, covers the bottom
+// ~24 pt, so nothing important goes there. Icon centres must match scripts/dmg-settings.py.
 // Usage: swift scripts/make-dmg-background.swift [--out Resources/DMG/background.tiff]
 import AppKit
 
@@ -46,16 +47,16 @@ func draw() {
 
     // Slots: a faint rounded square behind each icon and a pill under it for the name.
     for centre in [app, apps] {
-        let slot = NSRect(x: centre.x - 80, y: centre.y - 74, width: 160, height: 166)
+        let slot = NSRect(x: centre.x - 80, y: centre.y - 76, width: 160, height: 174)
         colour(0xFFFFFF, 0.04).setFill()
         NSBezierPath(roundedRect: slot, xRadius: 26, yRadius: 26).fill()
         colour(0xFFFFFF, 0.08).setStroke()
         let border = NSBezierPath(roundedRect: slot.insetBy(dx: 0.5, dy: 0.5), xRadius: 26, yRadius: 26)
         border.lineWidth = 1
         border.stroke()
-        // Finder puts the name just under the icon (icon bottom + ~4 pt, 13 pt text).
-        let pill = NSRect(x: centre.x - 60, y: centre.y + iconSize / 2 + 1, width: 120, height: 22)
-        colour(0x6A7094).setFill()
+        // Finder centres the 13 pt name about 17 pt under the icon's bottom edge (measured).
+        let pill = NSRect(x: centre.x - 62, y: centre.y + iconSize / 2 + 5, width: 124, height: 24)
+        colour(0xE9E6DF).setFill()
         NSBezierPath(roundedRect: pill, xRadius: 11, yRadius: 11).fill()
     }
 
@@ -94,7 +95,7 @@ func draw() {
     text("Many Displays", size: 26, weight: .bold, colour: colour(0xF3F2EE), centreX: 320, top: 34, kern: -0.3)
     text("Drag the app into Applications to install it", size: 13, weight: .regular, colour: colour(0xA9ACC0), centreX: 320, top: 70)
     text("Then open it from Applications. It lives in your menu bar.", size: 11, weight: .regular,
-         colour: colour(0xA9ACC0, 0.8), centreX: 320, top: 352)
+         colour: colour(0xA9ACC0, 0.8), centreX: 320, top: 334)
 }
 
 func render(scale: CGFloat) -> NSBitmapImageRep {

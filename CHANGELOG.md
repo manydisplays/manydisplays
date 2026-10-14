@@ -5,6 +5,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The DMG opens on a designed window: the app and the Applications folder side by side with an arrow between them, in the app's colours, with the app icon as the disk icon.
+
 ## [1.1.5] - 2026-10-14
 
 ### Added

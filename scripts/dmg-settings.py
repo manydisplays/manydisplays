@@ -7,13 +7,15 @@ app = defines["app"]  # noqa: F821 (provided by dmgbuild)
 app_name = os.path.basename(app)
 
 format = "UDZO"
+icon = "Resources/AppIcon.icns"  # the volume icon in Finder and on the desktop
 filesystem = "HFS+"
 files = [app]
 symlinks = {"Applications": "/Applications"}
 hide_extension = [app_name]
 
 background = "Resources/DMG/background.tiff"  # build-app.sh runs from the repo root
-window_rect = ((200, 160), (640, 400))
+# Finder's bounds include the title bar (~28 pt): the content area is then exactly the 640×400 image.
+window_rect = ((200, 160), (640, 428))
 default_view = "icon-view"
 show_status_bar = False
 show_tab_view = False
