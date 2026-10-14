@@ -112,7 +112,7 @@ Category key: **A** windows move after sleep/wake/lock · **B** identical monito
 Seen in search but not opened: https://discussions.apple.com/thread/254580050 , /254513448 , /254702268 , /254385295 , /8033581 , /253493871 , /251241977 , /252392120 , /7551979 , /253589528 , /253935500 , /252563541 , /255328298 , /251405741 , /256145576 , /256135940 , /256159318
 
 ### Reddit
-High-engagement and recent ones below; the full list (31 more from search) is in [reddit.md](reddit.md).
+High-engagement and recent ones below.
 
 | URL | Summary | Date | Engagement | Cat |
 |---|---|---|---|---|
