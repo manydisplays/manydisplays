@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
 
         HotKeys.reloadFromSettings()
 
+        AccessibilityWindow.shared.checkTrust = { [weak self] in self?.checkTrust() }
         // Our own explanation first; the system prompt only comes after Grant Access.
         if !trusted, AccessibilityWindow.shared.shouldShowOnLaunch {
             AccessibilityWindow.shared.show()

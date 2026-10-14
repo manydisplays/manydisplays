@@ -26,6 +26,9 @@ final class AccessibilityWindow: NSObject, NSWindowDelegate {
         Settings.accessibilityNotNowVersion != AppIdentity.version
     }
 
+    /// Checks the permission now (the app delegate's check, which calls `permissionGranted`).
+    var checkTrust: (() -> Void)?
+
     var isVisible: Bool {
         window?.isVisible ?? false
     }
@@ -173,7 +176,7 @@ final class AccessibilityWindow: NSObject, NSWindowDelegate {
         case .waiting:
             title.stringValue = "Almost there"
             subtitle.stringValue = "In System Settings → Privacy & Security → Accessibility, turn on \(AppIdentity.name)."
-            footnote.stringValue = "Not in the list? Add it with the + button from your Applications folder. This window closes by itself."
+            footnote.stringValue = "This window closes by itself. Not in the list, or on and nothing happens? Remove it with −, then add it with + from your Applications folder."
             primary.title = "Open System Settings"
         case .granted:
             title.stringValue = "You're all set ✓"
@@ -195,6 +198,9 @@ final class AccessibilityWindow: NSObject, NSWindowDelegate {
     }
 
     @objc private func primaryClicked() {
+        // Never ask for what the app already has.
+        checkTrust?()
+        guard !AX.isTrusted else { return }
         // The first click only triggers macOS's own prompt, which has its own "Open System
         // Settings" button; opening the pane as well would leave that prompt behind it. Later
         // clicks (no prompt: macOS asks once) open the pane directly.
@@ -208,6 +214,11 @@ final class AccessibilityWindow: NSObject, NSWindowDelegate {
 
     @objc private func notNowClicked() {
         window?.close()
+    }
+
+    /// Back from System Settings: pick the permission up at once instead of at the next poll.
+    func windowDidBecomeKey(_ notification: Notification) {
+        checkTrust?()
     }
 
     /// Closing without the permission counts as Not Now: the menu shows the state instead.
