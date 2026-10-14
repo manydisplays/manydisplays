@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- A welcome window on first launch explains what the app does and why it needs the Accessibility permission, before macOS asks for it. "Not Now" keeps it closed until the next update; the menu reopens it.
+
+### Changed
+- Without the Accessibility permission the menu shows an orange "Accessibility permission needed" status, the menu bar icon is dimmed, and "Grant Accessibility Permission…" opens the welcome window. Turning the permission off while the app runs is detected too, and granting it again resumes without a restart.
+
 ## [1.1.4] - 2026-10-14
 
 ### Fixed

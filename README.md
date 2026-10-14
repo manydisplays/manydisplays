@@ -52,8 +52,11 @@ usual time, and the veil never stays longer than 10 s.
 ## Requirements and permissions
 
 - macOS 13 Ventura or later, Apple Silicon or Intel.
-- **Accessibility** permission (System Settings → Privacy & Security → Accessibility). Without it,
-  positions are still saved but windows cannot be moved.
+- **Accessibility** permission (System Settings → Privacy & Security → Accessibility). On first
+  launch a welcome window explains why before macOS asks; granting it takes effect without a
+  restart. Without it, positions are still saved but windows cannot be moved: the menu shows
+  "Accessibility permission needed" and a "Grant Accessibility Permission…" item, also if the
+  permission is turned off later.
 - No network access, no analytics. The app only talks to Apple's update server when you choose
   "Check for Updates…" or when automatic update checks are enabled (Sparkle).
 
