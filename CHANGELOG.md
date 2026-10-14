@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-10-14
+
 ### Fixed
 - During the three minutes after a restore, a snapshot taken while the mouse or keyboard is in use is postponed instead of saving positions that macOS may still be changing.
 
