@@ -30,7 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
 
         HotKeys.reloadFromSettings()
 
-        // Our own explanation first; the system prompt only comes after Continue.
+        // Our own explanation first; the system prompt only comes after Grant Access.
         if !trusted, AccessibilityWindow.shared.shouldShowOnLaunch {
             AccessibilityWindow.shared.show()
         }
