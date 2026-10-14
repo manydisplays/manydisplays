@@ -7,6 +7,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
     private var statusItem: NSStatusItem!
     private let menu = NSMenu()
     private var trustTimer: Timer?
+    /// The Accessibility permission as last seen; polled so a grant or a revocation is noticed
+    /// while running (every 2 s while missing, every 10 s once granted).
+    private var trusted = AX.isTrusted
     /// Sparkle, only when the bundle carries a feed URL and public key (release builds).
     private var updater: SPUStandardUpdaterController?
 
@@ -27,20 +30,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
 
         HotKeys.reloadFromSettings()
 
-        if !AX.isTrusted {
-            AX.promptForTrust()
-            trustTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] timer in
-                guard AX.isTrusted else { return }
-                timer.invalidate()
-                self?.trustTimer = nil
-                UserInput.startMonitoring()
-                Engine.shared.accessibilityGranted()
-            }
-            trustTimer?.tolerance = 1
+        // Our own explanation first; the system prompt only comes after Continue.
+        if !trusted, AccessibilityWindow.shared.shouldShowOnLaunch {
+            AccessibilityWindow.shared.show()
         }
+        scheduleTrustCheck()
 
         UserInput.startMonitoring()
         Engine.shared.start()
+    }
+
+    // MARK: - Accessibility permission
+
+    private func scheduleTrustCheck() {
+        trustTimer?.invalidate()
+        trustTimer = Timer.scheduledTimer(withTimeInterval: trusted ? 10 : 2, repeats: true) { [weak self] _ in
+            self?.checkTrust()
+        }
+        trustTimer?.tolerance = 1
+    }
+
+    /// Picks up a grant or a revocation; both take effect without a restart.
+    private func checkTrust() {
+        let now = AX.isTrusted
+        guard now != trusted else { return }
+        trusted = now
+        if now {
+            UserInput.startMonitoring()
+            Engine.shared.accessibilityGranted()
+            AccessibilityWindow.shared.permissionGranted()
+        } else {
+            UserInput.stopMonitoring()
+            Engine.shared.accessibilityRevoked()
+        }
+        scheduleTrustCheck()
+        updateIcon()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -68,14 +92,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
     private func updateIcon() {
         guard let button = statusItem?.button else { return }
         let status = Engine.shared.status
-        // Always the app's face; the state is told by dimming (idle, paused) and by the tooltip/menu.
+        // Always the app's face; the state is told by dimming (idle, paused, no permission) and
+        // by the tooltip/menu.
         button.image = StatusIcon.displays(accessibilityDescription: "\(AppIdentity.name): \(describe(status))")
-        button.appearsDisabled = status.mode == .inactive || status.mode == .paused
+        button.appearsDisabled = !trusted || status.mode == .inactive || status.mode == .paused
         button.toolTip = "\(AppIdentity.name): \(describe(status))"
     }
 
     private func describe(_ status: Engine.Status) -> String {
-        switch status.mode {
+        if !trusted {
+            return "Accessibility permission needed"
+        }
+        return switch status.mode {
         case .starting: "Starting…"
         case .inactive: "Idle: no external displays"
         case .tracking: "Remembering \(status.windowCount) windows"
@@ -88,6 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
     // MARK: - Menu (rebuilt only when opened)
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        checkTrust()
         menu.removeAllItems()
         let status = Engine.shared.status
 
@@ -99,7 +128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         if status.spaceMismatches > 0 {
             menu.addItem(disabled("⚠︎ \(status.spaceMismatches) windows are on a different Space"))
         }
-        if !AX.isTrusted {
+        if !trusted {
+            menu.addItem(disabled("Without it, positions are saved but windows cannot be moved"))
             menu.addItem(item("Grant Accessibility Permission…", #selector(openAccessibility), symbol: "lock.open"))
         }
         addTrialItems(to: menu)
@@ -299,6 +329,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         case .inactive, .paused: .systemGray
         }
         switch Licensing.shared.state {
+        case _ where !trusted:
+            colour = .systemOrange
         case .trialExpired:
             text = "Trial over: \(status.windowCount) windows remembered, not restored"
             colour = .systemOrange
@@ -387,10 +419,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
     }
 
     @objc private func openAccessibility() {
-        AX.promptForTrust()
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
+        AccessibilityWindow.shared.show()
     }
 
     @objc private func openData() {

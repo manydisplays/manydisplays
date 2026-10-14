@@ -94,6 +94,13 @@ enum Settings {
         set { defaults.set(newValue, forKey: "paused") }
     }
 
+    /// The version in which the user chose "Not Now" in the Accessibility window; cleared once
+    /// the permission is granted. The window is shown again on launch only after an update.
+    static var accessibilityNotNowVersion: String? {
+        get { defaults.string(forKey: "accessibilityNotNowVersion") }
+        set { defaults.set(newValue, forKey: "accessibilityNotNowVersion") }
+    }
+
     /// Global shortcuts, as text ("ctrl+alt+cmd+r"); empty means disabled. Saving has no default
     /// shortcut: the layout is saved automatically, and a stray press would overwrite it.
     static var restoreHotKey: HotKeySpec? {
@@ -161,6 +168,13 @@ enum UserInput {
             }
             mark()
         }
+    }
+
+    /// After the permission is revoked the monitor is dead; drop it so it can be added again.
+    static func stopMonitoring() {
+        guard let monitor else { return }
+        NSEvent.removeMonitor(monitor)
+        self.monitor = nil
     }
 
     static func mark() {

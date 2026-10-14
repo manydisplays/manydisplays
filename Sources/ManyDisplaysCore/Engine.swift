@@ -270,6 +270,15 @@ final class Engine {
         }
     }
 
+    /// The permission was turned off while running: positions are still saved, nothing moves.
+    func accessibilityRevoked() {
+        queue.async {
+            Log.info("Accessibility permission revoked: windows cannot be moved until it is granted again")
+            DispatchQueue.main.async { AXHub.shared.stop() }
+            self.publish()
+        }
+    }
+
     /// Manual save: the current window positions become the truth. Works while tracking is
     /// paused too (the pause only stops the automatic saving and restoring).
     func saveNow() {
