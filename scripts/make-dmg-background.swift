@@ -21,11 +21,23 @@ let size = NSSize(width: 640, height: 400)
 let app = NSPoint(x: 170, y: 200), apps = NSPoint(x: 470, y: 200), iconSize: CGFloat = 112
 
 func colour(_ hex: UInt32, _ alpha: CGFloat = 1) -> NSColor {
-    NSColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255,
-            blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
+    NSColor(
+        srgbRed: CGFloat(hex >> 16 & 0xFF) / 255,
+        green: CGFloat(hex >> 8 & 0xFF) / 255,
+        blue: CGFloat(hex & 0xFF) / 255,
+        alpha: alpha
+    )
 }
 
-func text(_ string: String, size: CGFloat, weight: NSFont.Weight, colour: NSColor, centreX: CGFloat, top: CGFloat, kern: CGFloat = 0) {
+func text(
+    _ string: String,
+    size: CGFloat,
+    weight: NSFont.Weight,
+    colour: NSColor,
+    centreX: CGFloat,
+    top: CGFloat,
+    kern: CGFloat = 0
+) {
     let style = NSMutableParagraphStyle()
     style.alignment = .center
     let attributed = NSAttributedString(string: string, attributes: [
@@ -64,7 +76,11 @@ func draw() {
     let start = NSPoint(x: app.x + 92, y: app.y), end = NSPoint(x: apps.x - 100, y: apps.y)
     let arc = NSBezierPath()
     arc.move(to: start)
-    arc.curve(to: end, controlPoint1: NSPoint(x: start.x + 40, y: start.y - 34), controlPoint2: NSPoint(x: end.x - 40, y: end.y - 34))
+    arc.curve(
+        to: end,
+        controlPoint1: NSPoint(x: start.x + 40, y: start.y - 34),
+        controlPoint2: NSPoint(x: end.x - 40, y: end.y - 34)
+    )
     arc.lineWidth = 6
     arc.lineCapStyle = .round
     // The head follows the curve's direction at its end (from the last control point).
@@ -93,9 +109,22 @@ func draw() {
     ctx.restoreGState()
 
     text("Many Displays", size: 26, weight: .bold, colour: colour(0xF3F2EE), centreX: 320, top: 34, kern: -0.3)
-    text("Drag the app into Applications to install it", size: 13, weight: .regular, colour: colour(0xA9ACC0), centreX: 320, top: 70)
-    text("Then open it from Applications. It lives in your menu bar.", size: 11, weight: .regular,
-         colour: colour(0xA9ACC0, 0.8), centreX: 320, top: 334)
+    text(
+        "Drag the app into Applications to install it",
+        size: 13,
+        weight: .regular,
+        colour: colour(0xA9ACC0),
+        centreX: 320,
+        top: 70
+    )
+    text(
+        "Then open it from Applications. It lives in your menu bar.",
+        size: 11,
+        weight: .regular,
+        colour: colour(0xA9ACC0, 0.8),
+        centreX: 320,
+        top: 334
+    )
 }
 
 func render(scale: CGFloat) -> NSBitmapImageRep {
