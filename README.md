@@ -7,7 +7,8 @@
 
 A macOS menu bar app that remembers where every window lives — which display, which position,
 which size, which Space — and puts everything back when your Mac wakes up, unlocks, or
-reconnects its external displays.
+reconnects its external displays. Zero clicks: there is no layout to save and no shortcut to
+press. You unlock your Mac and everything is already where you left it.
 
 **[manydisplays.com](https://manydisplays.com)** · Download the notarized build there, or build it yourself (below).
 
