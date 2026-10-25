@@ -40,7 +40,8 @@ press. You unlock your Mac and everything is already where you left it.
 
 One layout is kept **per combination of displays**. Identical monitors that share a serial are told
 apart by their system UUID, then by the **physical port** they are plugged into (Apple Silicon),
-and only then by position. If a display's resolution changes, positions are scaled proportionally.
+then by their EDID manufacture date, and only then by position. If a display's resolution
+changes, positions are scaled proportionally.
 
 "Restore Windows Automatically" (on by default) can be turned off in the menu: the app then keeps
 the last good layout, ignores whatever macOS did after a wake or unlock, and waits for

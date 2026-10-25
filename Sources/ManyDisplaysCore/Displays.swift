@@ -113,37 +113,19 @@ enum Displays {
 
         // Identical monitors can report the same vendor/model/serial (often serial 0 or 0x01010101).
         // Disambiguate with the system UUID, then with the physical port they are plugged into,
-        // and as a last resort with the left-to-right position.
+        // then with the EDID manufacture date, and as a last resort with the left-to-right position.
         var keys: [CGDirectDisplayID: String] = [:]
-        var ports: [CGDirectDisplayID: Int]?
+        var hardware: [CGDirectDisplayID: DisplayPorts.Hardware]?
         for (base, group) in Dictionary(grouping: raws, by: \.base) {
             if group.count == 1 {
                 keys[group[0].id] = base
                 continue
             }
-            for (uuid, sub) in Dictionary(grouping: group, by: \.uuid) {
-                if sub.count == 1 {
-                    keys[sub[0].id] = "\(base)-\(uuid.prefix(8))"
-                    continue
-                }
-                if ports == nil {
-                    ports = DisplayPorts.portIDs(for: raws.map(\.id))
-                }
-                let subPorts = sub.compactMap { ports?[$0.id] }
-                if subPorts.count == sub.count, Set(subPorts).count == sub.count {
-                    for r in sub {
-                        keys[r.id] = "\(base)-port\(ports![r.id]!)"
-                    }
-                    continue
-                }
-                let ordered = sub.sorted {
-                    let a = CGDisplayBounds($0.id), b = CGDisplayBounds($1.id)
-                    return a.minX != b.minX ? a.minX < b.minX : a.minY < b.minY
-                }
-                for (i, r) in ordered.enumerated() {
-                    keys[r.id] = "\(base)-\(uuid.prefix(8))-pos\(i)"
-                }
+            if hardware == nil, Set(group.map(\.uuid)).count < group.count {
+                hardware = DisplayPorts.hardware(for: raws.map(\.id))
             }
+            let members = group.map { Twin(id: $0.id, uuid: $0.uuid, bounds: CGDisplayBounds($0.id)) }
+            keys.merge(disambiguate(base: base, members, hardware: hardware ?? [:])) { $1 }
         }
 
         return raws.map { r in
@@ -168,6 +150,51 @@ enum Displays {
                 mirrorOf: CGDisplayMirrorsDisplay(r.id)
             )
         }
+    }
+
+    /// A display that shares its vendor/model/serial with at least one other.
+    struct Twin {
+        let id: CGDirectDisplayID
+        let uuid: String
+        let bounds: CGRect
+    }
+
+    /// Keys for displays that share `base`. The order of the criteria is part of the saved data:
+    /// a key that resolved one way must keep resolving the same way after an update, or the
+    /// layouts saved under it are lost. New criteria only go before the position fallback.
+    static func disambiguate(
+        base: String,
+        _ members: [Twin],
+        hardware: [CGDirectDisplayID: DisplayPorts.Hardware]
+    ) -> [CGDirectDisplayID: String] {
+        var keys: [CGDirectDisplayID: String] = [:]
+        for (uuid, sub) in Dictionary(grouping: members, by: \.uuid) {
+            if sub.count == 1 {
+                keys[sub[0].id] = "\(base)-\(uuid.prefix(8))"
+                continue
+            }
+            let ports = sub.compactMap { hardware[$0.id]?.port }
+            if ports.count == sub.count, Set(ports).count == sub.count {
+                for t in sub {
+                    keys[t.id] = "\(base)-port\(hardware[t.id]!.port)"
+                }
+                continue
+            }
+            let dates = sub.compactMap { hardware[$0.id]?.manufactured }
+            if dates.count == sub.count, Set(dates).count == sub.count {
+                for t in sub {
+                    keys[t.id] = "\(base)-made\(hardware[t.id]!.manufactured!)"
+                }
+                continue
+            }
+            let ordered = sub.sorted {
+                $0.bounds.minX != $1.bounds.minX ? $0.bounds.minX < $1.bounds.minX : $0.bounds.minY < $1.bounds.minY
+            }
+            for (i, t) in ordered.enumerated() {
+                keys[t.id] = "\(base)-\(uuid.prefix(8))-pos\(i)"
+            }
+        }
+        return keys
     }
 
     static func hasExternal(_ displays: [LiveDisplay]) -> Bool {

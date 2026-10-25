@@ -2,19 +2,31 @@ import CoreGraphics
 import Foundation
 import IOKit
 
-/// Physical port of each external display (Apple Silicon). Lets us tell apart identical
-/// monitors that report the same EDID serial: they still sit on different ports.
+/// Physical port and EDID manufacture date of each external display (Apple Silicon). Lets us
+/// tell apart identical monitors that report the same EDID serial: they still sit on different
+/// ports, and two units bought at different times carry different manufacture weeks.
 enum DisplayPorts {
-    private struct Framebuffer {
+    struct Hardware: Equatable {
         let port: Int
+        /// EDID year and week of manufacture, e.g. "2019w04"; nil when the EDID has none.
+        let manufactured: String?
+    }
+
+    private struct Framebuffer {
+        let hardware: Hardware
         let serial: UInt32
         let product: UInt32
     }
 
-    /// CGDirectDisplayID -> hardware PortID. External framebuffers are named "dispextN" and
-    /// CGDisplayUnitNumber is N + 1 (the built-in panel is unit 0). The mapping is only used
-    /// when the framebuffer's EDID serial/product match the display, so a wrong guess is ignored.
     static func portIDs(for ids: [CGDirectDisplayID]) -> [CGDirectDisplayID: Int] {
+        hardware(for: ids).mapValues(\.port)
+    }
+
+    /// CGDirectDisplayID -> hardware PortID and manufacture date. External framebuffers are named
+    /// "dispextN" and CGDisplayUnitNumber is N + 1 (the built-in panel is unit 0). The mapping is
+    /// only used when the framebuffer's EDID serial/product match the display, so a wrong guess
+    /// is ignored.
+    static func hardware(for ids: [CGDirectDisplayID]) -> [CGDirectDisplayID: Hardware] {
         var iterator: io_iterator_t = 0
         guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOMobileFramebufferShim"), &iterator) ==
             KERN_SUCCESS else {
@@ -31,19 +43,21 @@ enum DisplayPorts {
                   let port = (attributes["PortID"] as? NSNumber)?.intValue
             else { continue }
             let product = attributes["ProductAttributes"] as? [String: Any]
+            let year = (product?["YearOfManufacture"] as? NSNumber)?.intValue ?? 0
+            let week = (product?["WeekOfManufacture"] as? NSNumber)?.intValue ?? 0
             framebuffers[index] = Framebuffer(
-                port: port,
+                hardware: Hardware(port: port, manufactured: year > 0 ? String(format: "%04dw%02d", year, week) : nil),
                 serial: (product?["SerialNumber"] as? NSNumber)?.uint32Value ?? 0,
                 product: (product?["ProductID"] as? NSNumber)?.uint32Value ?? 0
             )
         }
 
-        var result: [CGDirectDisplayID: Int] = [:]
+        var result: [CGDirectDisplayID: Hardware] = [:]
         for id in ids where CGDisplayIsBuiltin(id) == 0 {
             let unit = Int(CGDisplayUnitNumber(id))
             guard unit >= 1, let fb = framebuffers[unit - 1],
                   fb.serial == CGDisplaySerialNumber(id), fb.product == CGDisplayModelNumber(id) else { continue }
-            result[id] = fb.port
+            result[id] = fb.hardware
         }
         return result
     }

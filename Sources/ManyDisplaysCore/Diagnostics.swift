@@ -15,11 +15,11 @@ enum Diagnostics {
             )
         }
 
-        let ports = DisplayPorts.portIDs(for: Displays.all().map(\.id))
+        let hardware = DisplayPorts.hardware(for: Displays.all().map(\.id))
         let hdr = DisplayPanel.hdrStates()
         for d in Displays.all() {
             print(
-                "  \(d.key): port=\(ports[d.id].map(String.init) ?? "-") hdr=\(hdr[d.id].map { "\($0)" } ?? "n/a") mirrorOf=\(d.mirrorOf)"
+                "  \(d.key): port=\(hardware[d.id].map { String($0.port) } ?? "-") made=\(hardware[d.id]?.manufactured ?? "-") hdr=\(hdr[d.id].map { "\($0)" } ?? "n/a") mirrorOf=\(d.mirrorOf)"
             )
         }
 

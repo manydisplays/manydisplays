@@ -5,6 +5,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Identical monitors that share serial, system UUID and port (two of them behind the same dock) are now told apart by their EDID manufacture date before falling back to their position. Monitors that were already told apart keep their saved layouts. `--dump` shows the date next to the port.
+
 ### Changed
 - The DMG opens on a designed window: the app and the Applications folder side by side with an arrow between them, in the app's colours, with the app icon as the disk icon.
 
