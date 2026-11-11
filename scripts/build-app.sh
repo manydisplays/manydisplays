@@ -20,7 +20,7 @@ cd "$(dirname "$0")/.."
 
 INSTALL=false; DMG=false; NOTARIZE=false
 SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://manydisplays.com/appcast.xml}"
-SPARKLE_PUBLIC_KEY="${SPARKLE_PUBLIC_KEY:-X3rtvmoCGImCrjZ9Kjz0+XsSYtYDmedaAZmkxKW2YD8=}"
+SPARKLE_PUBLIC_KEY="${SPARKLE_PUBLIC_KEY:-aFS7/8UtWFY5H489txU3rsjbk1TMThGeXSeT2m1Ya0Y=}"
 for arg in "$@"; do
     case "$arg" in
         --install) INSTALL=true ;;

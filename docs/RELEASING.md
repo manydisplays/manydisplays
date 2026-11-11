@@ -9,12 +9,15 @@
    ```bash
    xcrun notarytool store-credentials ManyDisplays --apple-id <apple id> --team-id <team id>
    ```
-3. **Sparkle keys.** Already generated on 2026-10-13 with `generate_keys` (found in
-   `.build/artifacts/sparkle/Sparkle/bin/` after any build). The private key lives in the login
-   Keychain of the build Mac ("Private key for signing Sparkle updates"); the public key is
-   `X3rtvmoCGImCrjZ9Kjz0+XsSYtYDmedaAZmkxKW2YD8=` and is the default in `scripts/build-app.sh`.
-   Back the private key up somewhere safe (`generate_keys -x sparkle-private-key.txt`): losing it
-   means existing installs can never update again. Never commit that file.
+3. **Sparkle keys.** Regenerated on 2026-11-11 after the original private key (from 2026-10-13,
+   public key `X3rtvmoCGImCrjZ9Kjz0+XsSYtYDmedaAZmkxKW2YD8=`) was lost with a reformatted Mac.
+   Installs up to 1.1.6 still accept updates signed with the new key through Sparkle's key
+   rotation: the app keeps the same Developer ID team (`5VHM3LM8C2`), so only the EdDSA key
+   changes. Never change the Developer ID team and the EdDSA key in the same release.
+   The private key lives in the login Keychain of the build Mac ("Private key for signing Sparkle
+   updates"); the public key is `aFS7/8UtWFY5H489txU3rsjbk1TMThGeXSeT2m1Ya0Y=` and is the default
+   in `scripts/build-app.sh`. Keep a backup outside the Mac (`generate_keys -x file`, import with
+   `generate_keys -f file`): losing it again means another rotation. Never commit that file.
 
 ## Each release
 
