@@ -332,10 +332,11 @@ final class Engine {
         }
     }
 
-    func setPaused(_ paused: Bool) {
+    /// `source` says what triggered it (mouse, keyboard, another app…), for the log.
+    func setPaused(_ paused: Bool, source: String) {
         queue.async {
             Settings.paused = paused
-            Log.info(paused ? "Paused by the user" : "Resumed by the user")
+            Log.info((paused ? "Paused by the user" : "Resumed by the user") + " (\(source))")
             if paused {
                 self.cycle += 1
                 self.stopTracking()

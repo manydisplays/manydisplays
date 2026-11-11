@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-11-11
+
+### Changed
+- While paused, "Resume Many Displays" sits right under the "Paused" status at the top of the menu instead of among the actions, so the way out is where you look first.
+
+### Added
+- The log says what paused or resumed the app (mouse click, keyboard, or another app pressing the menu item with no input event) and how long ago the menu was open.
+
 ## [1.1.6] - 2026-10-25
 
 ### Added

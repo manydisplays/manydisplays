@@ -12,6 +12,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
     private var trusted = AX.isTrusted
     /// Sparkle, only when the bundle carries a feed URL and public key (release builds).
     private var updater: SPUStandardUpdaterController?
+    /// When the menu last opened and closed, to tell in the log whether a pause came from the
+    /// open menu or from another app pressing the item through Accessibility.
+    private var menuOpenedAt: Date?
+    private var menuClosedAt: Date?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil,
@@ -133,6 +137,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
             menu.addItem(disabled("Without it, positions are saved but windows cannot be moved"))
             menu.addItem(item("Grant Accessibility Permission…", #selector(openAccessibility), symbol: "lock.open"))
         }
+        // While paused, the way out sits right under the state, not among the actions.
+        if Settings.paused {
+            menu.addItem(item("Resume \(AppIdentity.name)", #selector(togglePause), symbol: "play.fill"))
+        }
         addTrialItems(to: menu)
 
         menu.addItem(.separator())
@@ -143,12 +151,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         save.toolTip = "Positions are saved automatically; use this to make what you see now the saved layout."
         applyShortcut(Settings.saveHotKey, to: save)
         menu.addItem(save)
-        let pause = item(
-            Settings.paused ? "Resume \(AppIdentity.name)" : "Pause \(AppIdentity.name)",
-            #selector(togglePause),
-            symbol: Settings.paused ? "play.fill" : "pause.fill"
-        )
-        menu.addItem(pause)
+        if !Settings.paused {
+            menu.addItem(item("Pause \(AppIdentity.name)", #selector(togglePause), symbol: "pause.fill"))
+        }
 
         menu.addItem(.separator())
         menu.addItem(submenu("Saved Display Setups", savedSetupsMenu(status), symbol: "display.2"))
@@ -168,6 +173,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         menu.addItem(.separator())
         menu.addItem(item("About \(AppIdentity.name)…", #selector(openWebsite), symbol: "info.circle"))
         menu.addItem(item("Quit \(AppIdentity.name)", #selector(quit), symbol: "power"))
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        menuOpenedAt = Date()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        menuClosedAt = Date()
+    }
+
+    /// What triggered a menu action, for the log: the input event AppKit is handling and how
+    /// recently the menu was open. No event and no recent menu means another app pressed it.
+    private func actionSource() -> String {
+        var parts: [String] = []
+        if let event = NSApp.currentEvent {
+            switch event.type {
+            case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
+                parts.append("mouse click")
+            case .keyDown, .keyUp:
+                parts.append("keyboard (key code \(event.keyCode))")
+            default:
+                parts.append("event type \(event.type.rawValue)")
+            }
+        } else {
+            parts.append("no input event")
+        }
+        let now = Date()
+        if let opened = menuOpenedAt {
+            parts.append(String(format: "menu opened %.1fs ago", now.timeIntervalSince(opened)))
+        } else {
+            parts.append("menu never opened")
+        }
+        if let closed = menuClosedAt {
+            parts.append(String(format: "closed %.1fs ago", now.timeIntervalSince(closed)))
+        }
+        return parts.joined(separator: ", ")
     }
 
     /// Trial and licence prompts stay at the top until the app is licensed.
@@ -358,7 +399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
         Settings.resetToDefaults()
         HotKeys.reloadFromSettings()
         if wasPaused {
-            Engine.shared.setPaused(false)
+            Engine.shared.setPaused(false, source: "settings reset")
         }
         Log.info("Settings reset to defaults")
         updateIcon()
@@ -387,7 +428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SPUUpd
     }
 
     @objc private func togglePause() {
-        Engine.shared.setPaused(!Settings.paused)
+        Engine.shared.setPaused(!Settings.paused, source: actionSource())
     }
 
     @objc private func toggleAutoRestore() {
