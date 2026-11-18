@@ -16,18 +16,21 @@ manydisplays.com asks for a licence; this is how that works and why it is compat
 
 - A key is `MD1.<payload>.<signature>`: the payload is `email|issued|updatesUntil` and the
   signature is Ed25519 over it. The app carries only the public key
-  (`Licensing.publicKeyBase64`) and verifies offline; it never calls home.
+  (`Licensing.publicKeysBase64`, newest first) and verifies offline; it never calls home.
   See `Sources/ManyDisplaysCore/License.swift`.
-- The private key lives in the shop backend (and in the maintainer's Keychain under
-  "Many Displays licence signing key"). The shop issues a key when Stripe reports a completed
+- The private key lives in the shop backend (`LICENSE_PRIVATE_KEY`), in the maintainer's
+  Keychain (account `manydisplays`, service "Many Displays licence signing key (Ed25519 private,
+  base64)") and in the off-Mac credentials backup. The shop issues a key when Stripe reports a completed
   checkout; `scripts/license-tool.swift sign` issues one by hand (support, refunds, gifts).
 - Each release build carries `MDBuildDate` in Info.plist; a licence covers a build when the build
   date is not after the key's `updatesUntil`.
 - `MDRequiresLicense` is only set by `scripts/build-app.sh --dmg`. Builds from source, `swift run`
   and CI artifacts never ask for a licence, so contributors are not nagged.
-- Rotating the key pair: generate a new one (`license-tool.swift generate-keys`), ship the new
-  public key, and keep accepting the old one for a release or two if existing customers must keep
-  their keys (add it to a list of accepted keys).
+- Rotating the key pair: generate a new one (`license-tool.swift generate-keys`), put its public
+  key first in `publicKeysBase64` and keep the old ones so existing keys stay valid. Switch the
+  shop's `LICENSE_PRIVATE_KEY` only once a release that accepts the new key is out.
+- Rotated on 2026-11-18: the private half of `fatp+ja2…` was lost with a reformatted Mac (it only
+  survives as the shop's write-only secret). The new key is `zxiLMSNj…`.
 
 ## Why this is fine for a source-available app
 

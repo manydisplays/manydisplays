@@ -23,14 +23,20 @@ struct LicenseKey: Equatable {
 
     /// Parses and verifies a key against `publicKey` (raw 32 bytes).
     static func verify(_ text: String, publicKey: Data) throws -> LicenseKey {
+        try verify(text, publicKeys: [publicKey])
+    }
+
+    /// Parses and verifies a key signed by any of `publicKeys` (raw 32 bytes each).
+    static func verify(_ text: String, publicKeys: [Data]) throws -> LicenseKey {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 3, parts[0] == prefix,
               let payload = Data(base64URL: String(parts[1])),
-              let signature = Data(base64URL: String(parts[2])),
-              let key = try? Curve25519.Signing.PublicKey(rawRepresentation: publicKey)
+              let signature = Data(base64URL: String(parts[2]))
         else { throw Error.malformed }
-        guard key.isValidSignature(signature, for: payload) else { throw Error.badSignature }
+        let keys = publicKeys.compactMap { try? Curve25519.Signing.PublicKey(rawRepresentation: $0) }
+        guard !keys.isEmpty else { throw Error.malformed }
+        guard keys.contains(where: { $0.isValidSignature(signature, for: payload) }) else { throw Error.badSignature }
         guard let fields = String(data: payload, encoding: .utf8)?.split(separator: "|", omittingEmptySubsequences: false),
               fields.count == 3, let issued = Licensing.day(String(fields[1])), let until = Licensing.day(String(fields[2]))
         else { throw Error.malformed }
@@ -109,8 +115,13 @@ final class Licensing {
 
     static let trialDays = 14
     static let buyURL = URL(string: "https://manydisplays.com/buy")!
-    /// Ed25519 public key of the shop (raw, base64). The private half lives only in the shop.
-    static let publicKeyBase64 = "fatp+ja23VTv6hu2oBNuY8lwSZYopvm2tW5QtpCAFEc="
+    /// Ed25519 public keys accepted for licences (raw, base64), newest first. The private halves
+    /// live in the shop and the maintainer's Keychain. The first key was rotated on 2026-11-18
+    /// (its private half was lost with a reformatted Mac) and stays so existing keys keep working.
+    static let publicKeysBase64 = [
+        "zxiLMSNjA/qD6j6szVnMhuh1VUlPFoLOFJqMGZRpC60=",
+        "fatp+ja23VTv6hu2oBNuY8lwSZYopvm2tW5QtpCAFEc=",
+    ]
 
     private let defaults = UserDefaults.standard
     private let lock = NSLock()
@@ -133,7 +144,7 @@ final class Licensing {
         if let cached = cachedKey {
             return cached
         }
-        let parsed = defaults.string(forKey: "licenseKey").flatMap { try? LicenseKey.verify($0, publicKey: Self.publicKey) }
+        let parsed = defaults.string(forKey: "licenseKey").flatMap { try? LicenseKey.verify($0, publicKeys: Self.publicKeys) }
         cachedKey = .some(parsed)
         return parsed
     }
@@ -144,7 +155,7 @@ final class Licensing {
 
     /// Verifies and stores a key. Throws `LicenseKey.Error` when it is not valid.
     func activate(_ text: String) throws {
-        let parsed = try LicenseKey.verify(text, publicKey: Self.publicKey)
+        let parsed = try LicenseKey.verify(text, publicKeys: Self.publicKeys)
         lock.lock()
         defaults.set(parsed.text, forKey: "licenseKey")
         cachedKey = .some(parsed)
@@ -180,8 +191,8 @@ final class Licensing {
         return earliest
     }
 
-    static var publicKey: Data {
-        Data(base64Encoded: publicKeyBase64) ?? Data()
+    static var publicKeys: [Data] {
+        publicKeysBase64.compactMap { Data(base64Encoded: $0) }
     }
 
     private static let dayFormatter: DateFormatter = {

@@ -102,8 +102,21 @@ final class LicenseTests: XCTestCase {
         XCTAssertFalse(LicenseState.updatesExpired(key).allowsRestoring)
     }
 
-    func testShopPublicKeyIsWellFormed() {
-        XCTAssertEqual(Licensing.publicKey.count, 32)
-        XCTAssertNoThrow(try Curve25519.Signing.PublicKey(rawRepresentation: Licensing.publicKey))
+    func testShopPublicKeysAreWellFormed() {
+        XCTAssertEqual(Licensing.publicKeys.count, Licensing.publicKeysBase64.count)
+        for key in Licensing.publicKeys {
+            XCTAssertEqual(key.count, 32)
+            XCTAssertNoThrow(try Curve25519.Signing.PublicKey(rawRepresentation: key))
+        }
+    }
+
+    func testAcceptsKeysSignedByAnyAcceptedKey() throws {
+        let other = Curve25519.Signing.PrivateKey()
+        let text = try LicenseKey.issue(email: "a@b.c", issuedAt: Date(), updatesUntil: Date(),
+                                        privateKey: other.rawRepresentation)
+        XCTAssertNoThrow(try LicenseKey.verify(text, publicKeys: [publicKey, other.publicKey.rawRepresentation]))
+        XCTAssertThrowsError(try LicenseKey.verify(text, publicKeys: [publicKey])) {
+            XCTAssertEqual($0 as? LicenseKey.Error, .badSignature)
+        }
     }
 }
