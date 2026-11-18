@@ -5,6 +5,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.8] - 2026-11-18
+
+### Changed
+- Licence keys can be signed with more than one shop key, so the signing key can be renewed without invalidating any licence already sold. Existing keys keep working as before.
+
 ## [1.1.7] - 2026-11-11
 
 ### Changed
